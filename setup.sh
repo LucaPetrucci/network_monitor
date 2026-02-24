@@ -346,7 +346,10 @@ CREATE TABLE IF NOT EXISTS iperf_results (
     timestamp DATETIME(3),
     bitrate FLOAT,
     jitter FLOAT,
-    lost_percentage FLOAT
+    lost_percentage FLOAT,
+    executed_command TEXT,
+    protocol VARCHAR(16),
+    packet_size INT
 );
 
 CREATE TABLE IF NOT EXISTS ping_results (
@@ -363,6 +366,14 @@ CREATE TABLE IF NOT EXISTS interruptions (
 " || { echo "❌ Failed to create database tables"; exit 1; }
 
 echo "✅ Database tables created successfully."
+
+# Ensure metadata columns exist for older installations.
+mysql -u $DB_USER -p$DB_PASS $DB_NAME -e "
+ALTER TABLE iperf_results
+  ADD COLUMN IF NOT EXISTS executed_command TEXT,
+  ADD COLUMN IF NOT EXISTS protocol VARCHAR(16),
+  ADD COLUMN IF NOT EXISTS packet_size INT;
+" || echo "⚠️  Failed to ensure iperf_results metadata columns (attempted ALTER TABLE)."
 
 # Copy all scripts from the network_monitor folder to /opt/network_monitor/
 echo "📁 Copying scripts to /opt/network_monitor/..."

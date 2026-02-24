@@ -8,23 +8,51 @@ interface=""
 target_ip=""
 bandwidth=""
 port=""
+mode="udp"
+packet_size=""
+db_host="${DB_HOST:-}"
+db_port="${DB_PORT:-}"
 
-# Parse command-line options
-while getopts "i:t:b:p:" opt; do
+usage() {
+  echo "Usage: $0 -i <interface> -t <target_ip> -p <port> [-b <bandwidth>] [-m <mode>] [-l <packet_size>]"
+  echo "  -b: Bandwidth limit for UDP runs"
+  echo "  -m: Protocol mode (udp|tcp, default: udp)"
+  echo "  -l: Packet size to pass via iperf3 -l"
+}
+
+while getopts "i:t:b:p:m:l:" opt; do
   case $opt in
     i) interface="$OPTARG" ;;
     t) target_ip="$OPTARG" ;;
     b) bandwidth="$OPTARG" ;;
     p) port="$OPTARG" ;;
-    \?) echo "Invalid option: -$OPTARG" >&2; exit 1 ;;
-    :) echo "Option -$OPTARG requires an argument." >&2; exit 1 ;;
+    m) mode="$OPTARG" ;;
+    l) packet_size="$OPTARG" ;;
+    \?) echo "Invalid option: -$OPTARG" >&2; usage; exit 1 ;;
+    :) echo "Option -$OPTARG requires an argument." >&2; usage; exit 1 ;;
   esac
 done
 
-# Check if required parameters are provided
 if [ -z "$interface" ] || [ -z "$target_ip" ] || [ -z "$port" ]; then
-  echo "Error: Missing required parameters. Usage: $0 -i <interface> -t <target_ip> -p <port> [-b <bandwidth>]"
+  echo "Error: Missing required parameters."
+  usage
   exit 1
+fi
+
+mode="$(echo "$mode" | tr '[:upper:]' '[:lower:]')"
+if [[ "$mode" != "udp" && "$mode" != "tcp" ]]; then
+  echo "Error: Invalid mode '$mode'. Expected 'udp' or 'tcp'."
+  exit 1
+fi
+
+if [ -n "$packet_size" ] && ! [[ "$packet_size" =~ ^[0-9]+$ ]]; then
+  echo "Error: Packet size must be a positive integer."
+  exit 1
+fi
+
+if [ "$mode" = "tcp" ] && [ -n "$bandwidth" ]; then
+  echo "⚠️  Bandwidth (-b) is ignored in TCP mode."
+  bandwidth=""
 fi
 
 # Get the local IP address
@@ -39,49 +67,102 @@ echo "Local IP address: $local_ip"
 echo "Target IP address: $target_ip"
 echo "Bandwidth: ${bandwidth:-not specified}"
 echo "Port: $port"
+echo "Mode: $mode"
+if [ -n "$packet_size" ]; then
+  echo "Packet size: $packet_size"
+fi
 
-# Record start time
 start_time=$(date +%s.%N)
 
-# Run iperf3 client with improved parsing and unbuffered output
-echo "🚀 Starting iperf3 client to collect bandwidth data..."
-stdbuf -oL -eL iperf3 -c "$target_ip" -u -R -p "$port" ${bandwidth:+-b "$bandwidth"} -t 0 -f m -i 1 | while IFS= read -r line; do
-    echo "DEBUG: $line"  # Debug output to see what we're receiving
-    
-    # Parse different iperf3 output formats
-    # Format 1: [  5]   0.00-1.00   sec   129 KBytes  1.05 Mbits/sec  91
-    if [[ $line =~ \[[[:space:]]*[0-9]+\][[:space:]]+([0-9.]+)-([0-9.]+)[[:space:]]+sec[[:space:]]+[0-9.]+[[:space:]]+[KMG]?Bytes[[:space:]]+([0-9.]+)[[:space:]]+[KMG]?bits/sec[[:space:]]+([0-9]+) ]]; then
-        elapsed_time="${BASH_REMATCH[2]}"
-        bitrate="${BASH_REMATCH[3]}"
-        datagrams="${BASH_REMATCH[4]}"
-        
-        # Convert bitrate to Mbits/sec if needed
-        if [[ $line =~ ([0-9.]+)[[:space:]]+Kbits/sec ]]; then
-            bitrate=$(awk "BEGIN {printf \"%.3f\", ${BASH_REMATCH[1]} / 1000}")
-        elif [[ $line =~ ([0-9.]+)[[:space:]]+Gbits/sec ]]; then
-            bitrate=$(awk "BEGIN {printf \"%.3f\", ${BASH_REMATCH[1]} * 1000}")
-        fi
-        
-        # Calculate accurate timestamp based on measurement time
-        measurement_time=$(awk "BEGIN {printf \"%.3f\", $start_time + $elapsed_time}")
-        timestamp=$(date -d "@$measurement_time" +"%Y-%m-%d %H:%M:%S.%3N")
-        
-        # Insert data into the database immediately (using 0 for jitter and lost_percentage as they're not in this format)
-        echo "📊 Inserting REAL-TIME: timestamp=$timestamp, bitrate=$bitrate"
-        mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -e "INSERT INTO iperf_results (timestamp, bitrate, jitter, lost_percentage) VALUES ('$timestamp', $bitrate, 0, 0);" 2>/dev/null
-        
-    # Format 2: UDP format with jitter and loss
-    elif [[ $line =~ \[[[:space:]]*[0-9]+\][[:space:]]+([0-9.]+)-([0-9.]+)[[:space:]]+sec[[:space:]]+[0-9.]+[[:space:]]+[KMG]?Bytes[[:space:]]+([0-9.]+)[[:space:]]+[KMG]?bits/sec[[:space:]]+([0-9.]+)[[:space:]]+ms[[:space:]]+([0-9]+)/([0-9]+)[[:space:]]\(([0-9.]+)%\) ]]; then
-        elapsed_time="${BASH_REMATCH[2]}"
-        bitrate="${BASH_REMATCH[3]}"
-        jitter="${BASH_REMATCH[4]}"
-        lost_percentage="${BASH_REMATCH[7]}"
-        
-        # Calculate accurate timestamp based on measurement time
-        measurement_time=$(awk "BEGIN {printf \"%.3f\", $start_time + $elapsed_time}")
-        timestamp=$(date -d "@$measurement_time" +"%Y-%m-%d %H:%M:%S.%3N")
-        
-        echo "📊 Inserting REAL-TIME: timestamp=$timestamp, bitrate=$bitrate, jitter=$jitter, loss=$lost_percentage%"
-        mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -e "INSERT INTO iperf_results (timestamp, bitrate, jitter, lost_percentage) VALUES ('$timestamp', $bitrate, $jitter, $lost_percentage);" 2>/dev/null
-    fi
+iperf_args=("-c" "$target_ip" "-p" "$port" "-t" "0" "-f" "m" "-i" "1" "-R")
+if [ "$mode" = "udp" ]; then
+  iperf_args+=("-u")
+  if [ -n "$bandwidth" ]; then
+    iperf_args+=("-b" "$bandwidth")
+  fi
+fi
+if [ -n "$packet_size" ]; then
+  iperf_args+=("-l" "$packet_size")
+fi
+
+executed_command="iperf3 $(printf '%q ' "${iperf_args[@]}")"
+executed_command=${executed_command% }
+
+escape_sql() {
+  local value="$1"
+  printf '%s' "${value//"'"/"''"}"
+}
+
+escaped_command=$(escape_sql "$executed_command")
+
+if [ -n "$packet_size" ]; then
+  packet_size_sql="$packet_size"
+else
+  packet_size_sql="NULL"
+fi
+
+insert_sample() {
+  local timestamp="$1"
+  local bitrate="$2"
+  local jitter="${3:-0}"
+  local loss="${4:-0}"
+  local mysql_cmd=(mysql -u "$DB_USER" -p"$DB_PASS")
+
+  if [ -n "$db_host" ]; then
+    mysql_cmd+=(-h "$db_host")
+  fi
+  if [ -n "$db_port" ]; then
+    mysql_cmd+=(-P "$db_port")
+  fi
+  mysql_cmd+=("$DB_NAME")
+
+  "${mysql_cmd[@]}" -e \
+    "INSERT INTO iperf_results (timestamp, bitrate, jitter, lost_percentage, executed_command, protocol, packet_size) VALUES ('$timestamp', $bitrate, $jitter, $loss, '$escaped_command', '$mode', $packet_size_sql);" 2>/dev/null || \
+    echo "⚠️  Failed to insert sample at $timestamp"
+}
+
+normalize_bitrate() {
+  local value="$1"
+  local unit="${2^^}"
+  case "$unit" in
+    K)
+      awk -v val="$value" 'BEGIN {printf "%.3f", val / 1000}'
+      ;;
+    G)
+      awk -v val="$value" 'BEGIN {printf "%.3f", val * 1000}'
+      ;;
+    *)
+      awk -v val="$value" 'BEGIN {printf "%.3f", val}'
+      ;;
+  esac
+}
+
+udp_regex='\[[[:space:]]*[0-9]+\][[:space:]]+([0-9.]+)-([0-9.]+)[[:space:]]+sec[[:space:]]+[0-9.]+[[:space:]]+[KMG]?Bytes[[:space:]]+([0-9.]+)[[:space:]]+([KMG]?)bits/sec[[:space:]]+([0-9.]+)[[:space:]]+ms[[:space:]]+([0-9]+)/([0-9]+)[[:space:]]\(([0-9.]+)%\)'
+throughput_regex='\[[[:space:]]*[0-9]+\][[:space:]]+([0-9.]+)-([0-9.]+)[[:space:]]+sec[[:space:]]+[0-9.]+[[:space:]]+[KMG]?Bytes[[:space:]]+([0-9.]+)[[:space:]]+([KMG]?)bits/sec'
+
+stdbuf -oL -eL iperf3 "${iperf_args[@]}" | while IFS= read -r line; do
+  echo "DEBUG: $line"
+  if [ "$mode" = "udp" ] && [[ $line =~ $udp_regex ]]; then
+    elapsed_end="${BASH_REMATCH[2]}"
+    bitrate_raw="${BASH_REMATCH[3]}"
+    unit="${BASH_REMATCH[4]}"
+    jitter="${BASH_REMATCH[5]}"
+    lost_percentage="${BASH_REMATCH[8]}"
+
+    bitrate=$(normalize_bitrate "$bitrate_raw" "$unit")
+    measurement_time=$(awk -v base="$start_time" -v offset="$elapsed_end" 'BEGIN {printf "%.3f", base + offset}')
+    timestamp=$(date -d "@$measurement_time" +"%Y-%m-%d %H:%M:%S.%3N")
+
+    insert_sample "$timestamp" "$bitrate" "$jitter" "$lost_percentage"
+  elif [[ $line =~ $throughput_regex ]]; then
+    elapsed_end="${BASH_REMATCH[2]}"
+    bitrate_raw="${BASH_REMATCH[3]}"
+    unit="${BASH_REMATCH[4]}"
+
+    bitrate=$(normalize_bitrate "$bitrate_raw" "$unit")
+    measurement_time=$(awk -v base="$start_time" -v offset="$elapsed_end" 'BEGIN {printf "%.3f", base + offset}')
+    timestamp=$(date -d "@$measurement_time" +"%Y-%m-%d %H:%M:%S.%3N")
+
+    insert_sample "$timestamp" "$bitrate" 0 0
+  fi
 done

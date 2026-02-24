@@ -19,6 +19,8 @@ interface=""
 port=5050
 target_ip=${REMOTE_DB_IP:-""}  # Default to REMOTE_DB_IP
 bandwidth=""
+mode="udp"
+packet_size=""
 server_ip=""  # IP address to bind the iperf3 server to
 server_interface=""  # Network interface to bind the iperf3 server to
 create_default=false
@@ -35,7 +37,9 @@ show_help() {
     echo "  -i <interface>       Specify the network interface to use for client connections"
     echo "  -t <target_ip>       Specify the target IP address"
     echo "  -p <port>            Specify the port for iperf3 (default: 5050)"
-    echo "  -b <bandwidth>       Specify the bandwidth for iperf3"
+    echo "  -b <bandwidth>       Specify the bandwidth for iperf3 (UDP only)"
+    echo "  -m <mode>            Protocol mode for iperf3 (udp|tcp, default: udp)"
+    echo "  -l <packet_size>     Packet size for iperf3 (applied via -l)"
     echo "  -S <server_ip>       Bind iperf3 server to specific IP address"
     echo "  -I <server_interface> Bind iperf3 server to specific network interface"
     echo "  -d                   Create a default.conf file with current settings (requires superuser)"
@@ -58,6 +62,8 @@ INTERFACE=$interface
 TARGET_IP=$target_ip
 PORT=$port
 BANDWIDTH=$bandwidth
+MODE=$mode
+PACKET_SIZE=$packet_size
 SERVER_IP=$server_ip
 SERVER_INTERFACE=$server_interface
 EOF
@@ -108,6 +114,8 @@ if [ -f "$SCRIPT_DIR/default.conf" ]; then
     target_ip=${TARGET_IP:-$target_ip}
     port=${PORT:-$port}
     bandwidth=${BANDWIDTH:-$bandwidth}
+    mode=${MODE:-$mode}
+    packet_size=${PACKET_SIZE:-$packet_size}
     server_ip=${SERVER_IP:-$server_ip}
     server_interface=${SERVER_INTERFACE:-$server_interface}
 fi
@@ -119,6 +127,8 @@ while [[ $# -gt 0 ]]; do
         -t) target_ip="$2"; shift 2 ;;
         -p) port="$2"; shift 2 ;;
         -b) bandwidth="$2"; shift 2 ;;
+        -m) mode="$2"; shift 2 ;;
+        -l) packet_size="$2"; shift 2 ;;
         -S) server_ip="$2"; shift 2 ;;
         -I) server_interface="$2"; shift 2 ;;
         -d) create_default=true; check_superuser; shift ;;
@@ -134,6 +144,22 @@ done
 if [ "$uninstall_all" = true ] && [ "$uninstall" = false ]; then
     echo "Error: -a flag can only be used with -u flag."
     exit 1
+fi
+
+mode="$(echo "$mode" | tr '[:upper:]' '[:lower:]')"
+if [[ "$mode" != "udp" && "$mode" != "tcp" ]]; then
+    echo "Error: Mode must be 'udp' or 'tcp' (received '$mode')."
+    exit 1
+fi
+
+if [ -n "$packet_size" ] && ! [[ "$packet_size" =~ ^[0-9]+$ ]]; then
+    echo "Error: Packet size must be a positive integer."
+    exit 1
+fi
+
+if [ "$mode" = "tcp" ] && [ -n "$bandwidth" ]; then
+    echo "⚠️  Bandwidth (-b) limits only apply with UDP mode; ignoring for TCP."
+    bandwidth=""
 fi
 
 # Uninstall if -u flag is passed
@@ -195,6 +221,10 @@ fi
 echo "📡 Client interface: $interface"
 echo "📡 Client IP address: $local_ip"
 echo "🎯 Target IP address: $target_ip"
+echo "⚙️  Mode: $mode"
+if [ -n "$packet_size" ]; then
+    echo "📐 Packet size: $packet_size"
+fi
 if [ -n "$server_ip" ]; then
     echo "🔗 Server will bind to IP: $server_ip"
 fi
@@ -295,7 +325,15 @@ trap cleanup SIGINT SIGTERM EXIT
 # Launch other scripts in the background and store their PIDs
 echo "🚀 Starting monitoring processes..."
 
-"$SCRIPT_DIR/iperf_client.sh" -i "$interface" -t "$target_ip" -p "$port" ${bandwidth:+-b "$bandwidth"} &
+client_args=("-i" "$interface" "-t" "$target_ip" "-p" "$port" "-m" "$mode")
+if [ -n "$packet_size" ]; then
+    client_args+=("-l" "$packet_size")
+fi
+if [ -n "$bandwidth" ]; then
+    client_args+=("-b" "$bandwidth")
+fi
+
+"$SCRIPT_DIR/iperf_client.sh" "${client_args[@]}" &
 iperf_client_pid=$!
 
 "$SCRIPT_DIR/ping_client.sh" -i "$interface" -t "$target_ip" &

@@ -84,7 +84,9 @@ network_monitor -h
 | `-S <server_ip>` | Server binding IP | `-S 10.1.0.12` |
 | `-I <server_interface>` | Server binding interface | `-I eth1` |
 | `-p <port>` | iperf3 port (default: 5050) | `-p 5201` |
-| `-b <bandwidth>` | Bandwidth limit | `-b 100M` |
+| `-b <bandwidth>` | Bandwidth limit (UDP only, ignored in TCP) | `-b 100M` |
+| `-m <mode>` | Protocol mode for iperf3 (`udp` or `tcp`, default: `udp`) | `-m tcp` |
+| `-l <packet_size>` | Packet size to pass to iperf3 with `-l` | `-l 1400` |
 | `-h, --help` | Display help message | |
 
 ### Signal Handling
@@ -118,6 +120,9 @@ Eliminates false positives with intelligent thresholds:
 - `bitrate`: Throughput in Mbits/sec
 - `jitter`: Network jitter in milliseconds
 - `lost_percentage`: Packet loss percentage
+- `executed_command`: Exact `iperf3` command that produced the sample
+- `protocol`: Transport mode (`udp` or `tcp`) used for the run
+- `packet_size`: Packet size (from `-l`), or `NULL` when unused
 
 **ping_results table:**
 - `timestamp`: Ping time with millisecond precision
@@ -188,6 +193,18 @@ ps aux | grep -E "(iperf3|ping|interruption)"
 ping -c 5 <target_ip>
 iperf3 -c <target_ip> -p 5050 -t 10
 ```
+
+### UDP/TCP verification and command logging
+
+- Run a UDP profile with `network_monitor -i <iface> -t <target_ip> -m udp -l 1400 -b 100M` and confirm `iperf_results` rows show `protocol = 'udp'`, `packet_size = 1400`, and `executed_command` contains `-u` and `-l 1400`.
+- Run a TCP profile with `network_monitor -i <iface> -t <target_ip> -m tcp` to ensure stored rows have `protocol = 'tcp'` (and `packet_size` either `NULL` or the provided value) and `executed_command` lacks UDP flags.
+- Verify MySQL logging with:
+
+```
+mysql -u $DB_USER -p$DB_PASS $DB_NAME -e "SELECT timestamp, protocol, packet_size, executed_command FROM iperf_results ORDER BY timestamp DESC LIMIT 5;"
+```
+
+Inspect the `executed_command` column to confirm the exact `iperf3` invocation recorded for each run.
 
 ## Architecture
 
