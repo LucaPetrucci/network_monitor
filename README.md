@@ -43,7 +43,7 @@ network_monitor -i enp60s0 -t 10.0.0.11 -S 10.1.0.12 -p 5050
 The setup script automatically installs and configures:
 
 - **Dependencies**: iperf3, MariaDB server, Grafana, jq, bc
-- **Database**: Creates `comsa` database with optimized tables
+- **Database**: Creates the configured database with optimized tables
 - **Grafana**: Installs with data sources and timezone-aware dashboards
 - **Scripts**: Copies monitoring scripts to `/opt/network_monitor/`
 - **Symlink**: Creates `network_monitor` command in `/usr/local/bin/`
@@ -159,7 +159,7 @@ Access Grafana at `http://localhost:3000` with credentials `admin/admin`.
 ### Common Issues
 
 **1. No data in Grafana:**
-- Check database connectivity: `mysql -u comsa -p'c0ms4' comsa -e "SELECT COUNT(*) FROM iperf_results;"`
+- Check database connectivity: `mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -e "SELECT COUNT(*) FROM iperf_results;"`
 - Verify iperf3 connection between machines
 - Ensure proper time range selection in Grafana (try "Last 24 hours")
 
@@ -180,11 +180,14 @@ Access Grafana at `http://localhost:3000` with credentials `admin/admin`.
 ### Diagnostic Commands
 
 ```bash
+# Load DB credentials from .env (optional)
+set -a; source .env; set +a
+
 # Check database status
-mysql -u comsa -p'c0ms4' comsa -e "SHOW TABLES;"
+mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -e "SHOW TABLES;"
 
 # View recent measurements
-mysql -u comsa -p'c0ms4' comsa -e "SELECT * FROM iperf_results ORDER BY timestamp DESC LIMIT 5;"
+mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -e "SELECT * FROM iperf_results ORDER BY timestamp DESC LIMIT 5;"
 
 # Check running processes
 ps aux | grep -E "(iperf3|ping|interruption)"
