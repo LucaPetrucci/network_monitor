@@ -208,6 +208,43 @@
           "x": 0,
           "y": 32
         }
+      },
+      {
+        "type": "table",
+        "title": "Iperf3 Test Metadata (Local + Remote)",
+        "datasource": {
+          "type": "datasource",
+          "uid": "-- Mixed --"
+        },
+        "targets": [
+          {
+            "datasource": {
+              "type": "mysql",
+              "uid": "LocalNetworkMonitor"
+            },
+            "format": "table",
+            "rawSql": "SELECT 'local' AS source, timestamp, protocol, packet_size, bitrate, jitter, lost_percentage, executed_command FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY timestamp DESC LIMIT 100;",
+            "refId": "A"
+          },
+          {
+            "datasource": {
+              "type": "mysql",
+              "uid": "RemoteNetworkMonitor"
+            },
+            "format": "table",
+            "rawSql": "SELECT 'remote' AS source, timestamp, protocol, packet_size, bitrate, jitter, lost_percentage, executed_command FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY timestamp DESC LIMIT 100;",
+            "refId": "B"
+          }
+        ],
+        "options": {
+          "showHeader": true
+        },
+        "gridPos": {
+          "h": 10,
+          "w": 24,
+          "x": 0,
+          "y": 40
+        }
       }
     ]
   },

@@ -143,6 +143,30 @@
           "x": 0,
           "y": 32
         }
+      },
+      {
+        "type": "table",
+        "title": "Iperf3 Test Metadata",
+        "datasource": {
+          "type": "mysql",
+          "uid": "LocalNetworkMonitor"
+        },
+        "targets": [
+          {
+            "format": "table",
+            "rawSql": "SELECT timestamp, protocol, packet_size, bitrate, jitter, lost_percentage, executed_command FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY timestamp DESC LIMIT 100;",
+            "refId": "F"
+          }
+        ],
+        "options": {
+          "showHeader": true
+        },
+        "gridPos": {
+          "h": 10,
+          "w": 24,
+          "x": 0,
+          "y": 40
+        }
       }
     ]
   },

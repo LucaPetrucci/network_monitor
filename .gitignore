@@ -1,4 +1,79 @@
+# Project-specific
 openspec/
 .codex/
+.github/
 Appunti.md
+
+# Secrets and local env
 .env
+.env.*
+!.env.example
+!.env.grafana.example
+*.pem
+*.key
+*.crt
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# Python tooling caches and reports
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.pyre/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Bash/shell/runtime
+*.log
+logs/
+*.pid
+*.pid.lock
+*.seed
+*.stackdump
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

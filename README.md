@@ -154,6 +154,21 @@ Access Grafana at `http://localhost:3000` with credentials `admin/admin`.
 - **Time ranges**: Supports various time ranges (6h, 24h, 7d, etc.)
 - **Auto-refresh**: Real-time updates every 5-30 seconds
 
+### Run Grafana in Docker
+
+Use the provided compose stack to run Grafana with automatic datasource/dashboard provisioning:
+
+```bash
+cp .env.grafana.example .env.grafana
+docker compose -f docker-compose.grafana.yml up -d
+```
+
+The stack loads dashboards from `network_monitor/grafana_dashboards/` and provisions:
+- `LocalNetworkMonitor` MySQL datasource
+- `RemoteNetworkMonitor` MySQL datasource
+
+If your DB runs on the host, keep `GRAFANA_DB_*_HOST=host.docker.internal` in `.env.grafana`.
+
 ## Troubleshooting
 
 ### Common Issues
@@ -208,6 +223,8 @@ mysql -u $DB_USER -p$DB_PASS $DB_NAME -e "SELECT timestamp, protocol, packet_siz
 ```
 
 Inspect the `executed_command` column to confirm the exact `iperf3` invocation recorded for each run.
+
+The dashboards now include a metadata table panel (`Iperf3 Test Metadata`) showing protocol, packet size, and executed command for each recent sample.
 
 ## Architecture
 

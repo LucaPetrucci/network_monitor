@@ -1,0 +1,174 @@
+{
+  "id": null,
+  "uid": null,
+  "title": "Network Monitoring Dashboard",
+  "tags": [
+    "network",
+    "monitoring"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 16,
+  "version": 1,
+  "refresh": "5s",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Data Rate",
+      "datasource": {
+        "type": "mysql",
+        "uid": "LocalNetworkMonitor"
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT timestamp AS time, bitrate AS value FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Mbits"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Jitter",
+      "datasource": {
+        "type": "mysql",
+        "uid": "LocalNetworkMonitor"
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT timestamp AS time, jitter AS value FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Lost Packets",
+      "datasource": {
+        "type": "mysql",
+        "uid": "LocalNetworkMonitor"
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT timestamp AS time, lost_percentage AS value FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency",
+      "datasource": {
+        "type": "mysql",
+        "uid": "LocalNetworkMonitor"
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT timestamp AS time, latency AS value FROM ping_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Interruption Time",
+      "datasource": {
+        "type": "mysql",
+        "uid": "LocalNetworkMonitor"
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT timestamp AS time, interruption_time AS value FROM interruptions WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
+          "refId": "E"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 0,
+            "fillOpacity": 0,
+            "pointSize": 5
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      }
+    },
+    {
+      "type": "table",
+      "title": "Iperf3 Test Metadata",
+      "datasource": {
+        "type": "mysql",
+        "uid": "LocalNetworkMonitor"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT timestamp, protocol, packet_size, bitrate, jitter, lost_percentage, executed_command FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY timestamp DESC LIMIT 100;",
+          "refId": "F"
+        }
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      }
+    }
+  ]
+}
