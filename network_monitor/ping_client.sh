@@ -6,6 +6,8 @@ source /opt/network_monitor/setup.conf
 # Initialize variables
 interface=""
 target_ip=${REMOTE_DB_IP:-""}
+db_host="${DB_HOST:-}"
+db_port="${DB_PORT:-}"
 
 # Parse command-line options
 while getopts "i:t:" opt; do
@@ -52,12 +54,21 @@ echo "Using interface: $interface"
 echo "Local IP address: $local_ip"
 echo "Target IP address: $target_ip"
 
+mysql_cmd=(mysql -u "$DB_USER" -p"$DB_PASS")
+if [ -n "$db_host" ]; then
+    mysql_cmd+=(-h "$db_host")
+fi
+if [ -n "$db_port" ]; then
+    mysql_cmd+=(-P "$db_port")
+fi
+mysql_cmd+=("$DB_NAME")
+
 # Run ping with parsing and database insertion (unbuffered for real-time processing)
 stdbuf -oL -eL ping -i 1 -W 1 -I "$interface" "$target_ip" | while IFS= read -r line; do
     timestamp=$(date +"%Y-%m-%d %H:%M:%S.%3N")
     if [[ $line =~ time=([0-9.]+)[[:space:]]ms ]]; then
         latency="${BASH_REMATCH[1]}"
-        mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -e "INSERT INTO ping_results (timestamp, latency) VALUES ('$timestamp', $latency);"
+        "${mysql_cmd[@]}" -e "INSERT INTO ping_results (timestamp, latency) VALUES ('$timestamp', $latency);" 2>/dev/null || \
+          echo "⚠️  Failed to insert ping sample at $timestamp"
     fi
 done
-

@@ -101,6 +101,30 @@ else
   packet_size_sql="NULL"
 fi
 
+extended_columns_supported=""
+
+detect_schema_capabilities() {
+  local mysql_cmd=(mysql -u "$DB_USER" -p"$DB_PASS")
+  if [ -n "$db_host" ]; then
+    mysql_cmd+=(-h "$db_host")
+  fi
+  if [ -n "$db_port" ]; then
+    mysql_cmd+=(-P "$db_port")
+  fi
+  mysql_cmd+=("$DB_NAME")
+
+  local has_executed_command has_protocol has_packet_size
+  has_executed_command=$("${mysql_cmd[@]}" -Nse "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='$DB_NAME' AND TABLE_NAME='iperf_results' AND COLUMN_NAME='executed_command';" 2>/dev/null || echo 0)
+  has_protocol=$("${mysql_cmd[@]}" -Nse "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='$DB_NAME' AND TABLE_NAME='iperf_results' AND COLUMN_NAME='protocol';" 2>/dev/null || echo 0)
+  has_packet_size=$("${mysql_cmd[@]}" -Nse "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='$DB_NAME' AND TABLE_NAME='iperf_results' AND COLUMN_NAME='packet_size';" 2>/dev/null || echo 0)
+
+  if [ "$has_executed_command" = "1" ] && [ "$has_protocol" = "1" ] && [ "$has_packet_size" = "1" ]; then
+    extended_columns_supported="yes"
+  else
+    extended_columns_supported="no"
+  fi
+}
+
 insert_sample() {
   local timestamp="$1"
   local bitrate="$2"
@@ -116,9 +140,15 @@ insert_sample() {
   fi
   mysql_cmd+=("$DB_NAME")
 
-  "${mysql_cmd[@]}" -e \
-    "INSERT INTO iperf_results (timestamp, bitrate, jitter, lost_percentage, executed_command, protocol, packet_size) VALUES ('$timestamp', $bitrate, $jitter, $loss, '$escaped_command', '$mode', $packet_size_sql);" 2>/dev/null || \
-    echo "⚠️  Failed to insert sample at $timestamp"
+  if [ "$extended_columns_supported" = "yes" ]; then
+    "${mysql_cmd[@]}" -e \
+      "INSERT INTO iperf_results (timestamp, bitrate, jitter, lost_percentage, executed_command, protocol, packet_size) VALUES ('$timestamp', $bitrate, $jitter, $loss, '$escaped_command', '$mode', $packet_size_sql);" 2>/dev/null || \
+      echo "⚠️  Failed to insert sample at $timestamp"
+  else
+    "${mysql_cmd[@]}" -e \
+      "INSERT INTO iperf_results (timestamp, bitrate, jitter, lost_percentage) VALUES ('$timestamp', $bitrate, $jitter, $loss);" 2>/dev/null || \
+      echo "⚠️  Failed to insert sample at $timestamp"
+  fi
 }
 
 normalize_bitrate() {
@@ -139,6 +169,8 @@ normalize_bitrate() {
 
 udp_regex='\[[[:space:]]*[0-9]+\][[:space:]]+([0-9.]+)-([0-9.]+)[[:space:]]+sec[[:space:]]+[0-9.]+[[:space:]]+[KMG]?Bytes[[:space:]]+([0-9.]+)[[:space:]]+([KMG]?)bits/sec[[:space:]]+([0-9.]+)[[:space:]]+ms[[:space:]]+([0-9]+)/([0-9]+)[[:space:]]\(([0-9.]+)%\)'
 throughput_regex='\[[[:space:]]*[0-9]+\][[:space:]]+([0-9.]+)-([0-9.]+)[[:space:]]+sec[[:space:]]+[0-9.]+[[:space:]]+[KMG]?Bytes[[:space:]]+([0-9.]+)[[:space:]]+([KMG]?)bits/sec'
+
+detect_schema_capabilities
 
 stdbuf -oL -eL iperf3 "${iperf_args[@]}" | while IFS= read -r line; do
   echo "DEBUG: $line"

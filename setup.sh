@@ -367,13 +367,28 @@ CREATE TABLE IF NOT EXISTS interruptions (
 
 echo "✅ Database tables created successfully."
 
-# Ensure metadata columns exist for older installations.
-mysql -u $DB_USER -p$DB_PASS $DB_NAME -e "
-ALTER TABLE iperf_results
-  ADD COLUMN IF NOT EXISTS executed_command TEXT,
-  ADD COLUMN IF NOT EXISTS protocol VARCHAR(16),
-  ADD COLUMN IF NOT EXISTS packet_size INT;
-" || echo "⚠️  Failed to ensure iperf_results metadata columns (attempted ALTER TABLE)."
+# Ensure metadata columns exist for older installations (MariaDB-compatible).
+ensure_column_exists() {
+    local table_name="$1"
+    local column_name="$2"
+    local column_def="$3"
+
+    local exists
+    exists=$(mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -Nse \
+      "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='$DB_NAME' AND TABLE_NAME='$table_name' AND COLUMN_NAME='$column_name';" \
+      2>/dev/null || echo "0")
+
+    if [ "$exists" = "0" ]; then
+        echo "🔄 Adding missing column: ${table_name}.${column_name}"
+        mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -e \
+          "ALTER TABLE \`$table_name\` ADD COLUMN \`$column_name\` $column_def;" \
+          || echo "⚠️  Failed to add ${table_name}.${column_name}"
+    fi
+}
+
+ensure_column_exists "iperf_results" "executed_command" "TEXT"
+ensure_column_exists "iperf_results" "protocol" "VARCHAR(16)"
+ensure_column_exists "iperf_results" "packet_size" "INT"
 
 # Copy all scripts from the network_monitor folder to /opt/network_monitor/
 echo "📁 Copying scripts to /opt/network_monitor/..."

@@ -6,6 +6,8 @@ source /opt/network_monitor/setup.conf
 # Initialize variables
 target_ip=${REMOTE_DB_IP:-""}
 interface=""
+db_host="${DB_HOST:-}"
+db_port="${DB_PORT:-}"
 
 # Parse command-line options
 while getopts "t:i:" opt; do
@@ -42,6 +44,15 @@ fi
 echo "Monitoring interruptions for target IP: $target_ip"
 echo "Using interface: $interface"
 
+mysql_cmd=(mysql -u "$DB_USER" -p"$DB_PASS")
+if [ -n "$db_host" ]; then
+    mysql_cmd+=(-h "$db_host")
+fi
+if [ -n "$db_port" ]; then
+    mysql_cmd+=(-P "$db_port")
+fi
+mysql_cmd+=("$DB_NAME")
+
 # Function to check connectivity and record interruptions
 check_connectivity() {
     local start_time=0
@@ -75,7 +86,7 @@ check_connectivity() {
                     local timestamp=$(date +"%Y-%m-%d %H:%M:%S.%3N")
                     echo "🔴 REAL INTERRUPTION DETECTED: Connection restored after $interruption_time seconds"
                     echo "📝 Recording interruption in database..."
-                    mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -e "INSERT INTO interruptions (timestamp, interruption_time) VALUES ('$timestamp', $interruption_time);" 2>/dev/null
+                    "${mysql_cmd[@]}" -e "INSERT INTO interruptions (timestamp, interruption_time) VALUES ('$timestamp', $interruption_time);" 2>/dev/null
                     if [ $? -eq 0 ]; then
                         echo "✅ Interruption recorded successfully"
                     else
