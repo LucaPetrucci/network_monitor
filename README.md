@@ -154,10 +154,18 @@ This ensures proper time filtering regardless of system timezone settings.
 Access Grafana at `http://localhost:3000` with credentials `admin/admin`.
 
 **Available dashboards:**
-- **Network Monitor Remote**: Bidirectional network monitoring with real-time metrics
-- **Data sources**: Local and Remote database connections pre-configured
+- **Network Monitoring Dashboard**: Single-source local monitoring (data rate, jitter, loss, latency, interruptions, metadata, grouped test runs)
+- **Network Monitoring Dashboard (Bidirectional)**: Currently configured in **local fallback** mode so it shows the same data as the local dashboard until a real remote DB is available
+- **Network Monitoring Dashboard (Bidirectional - Timezone Fixed)_OLD**: Legacy dashboard kept for compatibility/reference
+- **Data sources**: `LocalNetworkMonitor` and `RemoteNetworkMonitor`
 - **Time ranges**: Supports various time ranges (6h, 24h, 7d, etc.)
 - **Auto-refresh**: Real-time updates every 5-30 seconds
+
+**Remote datasource placeholder (current setup):**
+- `RemoteNetworkMonitor` is preconfigured with a placeholder host (`192.168.1.100:3306`)
+- Database: `network_monitor`
+- If the remote host is unavailable, this is expected; dashboards still work in local fallback mode
+- When the remote DB is ready, update only the datasource host/credentials in Grafana
 
 ### Run Grafana in Docker
 
