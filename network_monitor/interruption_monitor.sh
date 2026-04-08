@@ -55,7 +55,8 @@ mysql_cmd+=("$DB_NAME")
 
 # Function to check connectivity and record interruptions
 check_connectivity() {
-    local start_time=0
+    local first_failure_time=0
+    local first_success_after_down_time=0
     local disconnected=false
     local consecutive_failures=0
     local consecutive_successes=0
@@ -75,11 +76,15 @@ check_connectivity() {
             # Ping successful
             consecutive_failures=0
             consecutive_successes=$((consecutive_successes + 1))
+
+            # Capture the first successful ping after disconnection (inclusive stop timestamp)
+            if $disconnected && [ "$first_success_after_down_time" = "0" ]; then
+                first_success_after_down_time=$(date +%s.%N)
+            fi
             
             if $disconnected && [ $consecutive_successes -ge $recovery_threshold ]; then
-                local end_time=$(date +%s.%N)
                 # Calculate interruption time using awk for floating point arithmetic
-                local interruption_time=$(awk "BEGIN {printf \"%.3f\", $end_time - $start_time}")
+                local interruption_time=$(awk "BEGIN {printf \"%.3f\", $first_success_after_down_time - $first_failure_time}")
                 
                 # Only record significant interruptions (longer than minimum threshold)
                 if [ -n "$interruption_time" ] && [ "$(awk "BEGIN {print ($interruption_time >= $min_interruption_duration)}")" = "1" ]; then
@@ -97,18 +102,26 @@ check_connectivity() {
                 fi
                 disconnected=false
                 consecutive_successes=0
+                first_failure_time=0
+                first_success_after_down_time=0
             elif ! $disconnected; then
                 # Connection is stable, just reset counters silently
                 consecutive_successes=0
+                first_failure_time=0
             fi
         else
             # Ping failed
             consecutive_successes=0
             consecutive_failures=$((consecutive_failures + 1))
+
+            # Keep the first failed ping timestamp as interruption start candidate
+            if [ "$first_failure_time" = "0" ]; then
+                first_failure_time=$(date +%s.%N)
+            fi
             
             if ! $disconnected && [ $consecutive_failures -ge $failure_threshold ]; then
-                start_time=$(date +%s.%N)
                 disconnected=true
+                first_success_after_down_time=0
                 echo "🔴 Connection lost at $(date) after $consecutive_failures consecutive ping failures. Monitoring for recovery..."
             elif ! $disconnected; then
                 echo "🟡 Ping failure $consecutive_failures/$failure_threshold (not yet considered disconnected)"

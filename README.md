@@ -113,6 +113,11 @@ Eliminates false positives with intelligent thresholds:
 - **2+ second minimum duration** to record interruptions
 - **1-second ping interval** for reasonable monitoring frequency
 
+Interruption timing semantics:
+- `interruption_time` **starts at the first failed ping** in the failure sequence
+- `interruption_time` **ends at the first successful ping** after connectivity returns
+- Thresholds are still enforced for event validation (5 fails to enter disconnected state, 3 successes to confirm recovery)
+
 ### Database Schema
 
 **iperf_results table:**
@@ -129,8 +134,8 @@ Eliminates false positives with intelligent thresholds:
 - `latency`: Round-trip time in milliseconds
 
 **interruptions table:**
-- `timestamp`: Interruption start time
-- `interruption_time`: Duration in seconds (≥2.0 for real interruptions)
+- `timestamp`: Interruption event timestamp (recorded when recovery is confirmed)
+- `interruption_time`: Duration in seconds (from first failed ping to first successful ping, ≥2.0 for real interruptions)
 
 ### Timezone Handling
 
@@ -185,6 +190,8 @@ If your DB runs on the host, keep `GRAFANA_DB_*_HOST=host.docker.internal` in `.
 
 **3. False interruption alerts:**
 - The system now requires 5 consecutive ping failures (≥5 seconds) before recording
+- Recovery is confirmed after 3 consecutive successful pings
+- Duration is measured from the first failed ping to the first successful ping
 - Only interruptions lasting 2+ seconds are recorded
 - Single dropped packets are ignored as normal network behavior
 
