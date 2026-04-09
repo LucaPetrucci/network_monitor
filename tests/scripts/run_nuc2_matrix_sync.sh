@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Usage (run on NUC2, with the same START_AT used on NUC1):
+# START_AT=$(date -d '+3 minutes' +%H:%M:%S); echo "$START_AT"
+# START_AT="$START_AT" IFACE=enp114s0 LOCAL_IP=10.10.27.11 TARGET_IP=10.10.27.10 RUN_SECONDS=120 PAUSE_SECONDS=5 ./tests/scripts/run_nuc2_matrix_sync.sh
+
 IFACE="${IFACE:-enp114s0}"
 LOCAL_IP="${LOCAL_IP:-10.10.27.11}"
 TARGET_IP="${TARGET_IP:-10.10.27.10}"
