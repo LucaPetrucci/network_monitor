@@ -1,23 +1,23 @@
-# Quickstart Two NUC (NUC1 -> NUC2)
+# Two-NUC Quickstart (NUC1 -> NUC2)
 
-Guida rapida per test manuali con:
+Quick manual test guide with:
 - NUC1: `10.10.27.10`
 - NUC2: `10.10.27.11`
 
-Scenario consigliato:
-- MariaDB + Grafana su NUC1
-- test principale in un solo verso: **NUC1 -> NUC2**
+Recommended setup:
+- MariaDB + Grafana on NUC1
+- main test flow in one direction: **NUC1 -> NUC2**
 
-## 1) Prerequisiti
+## 1) Prerequisites
 
-Su entrambi i NUC:
+On both NUCs:
 
 ```bash
 sudo apt update
 sudo apt install -y git iperf3
 ```
 
-## 2) Clone repo (entrambi i NUC)
+## 2) Clone the repository (both NUCs)
 
 ```bash
 git clone git@github.com:LucaPetrucci/network_monitor.git
@@ -25,15 +25,15 @@ cd network_monitor
 git checkout dev
 ```
 
-## 3) Installazione tool (entrambi i NUC)
+## 3) Install the tool (both NUCs)
 
 ```bash
 sudo bash ./setup.sh
 ```
 
-## 4) Database su NUC1 (10.10.27.10)
+## 4) Database setup on NUC1 (10.10.27.10)
 
-### 4.1 Crea DB local/remote + utente
+### 4.1 Create local/remote DBs and user
 
 ```bash
 sudo mysql -e "
@@ -45,7 +45,7 @@ GRANT ALL PRIVILEGES ON network_monitor_remote.* TO 'myuser'@'%';
 FLUSH PRIVILEGES;"
 ```
 
-### 4.2 Crea tabelle in entrambi i DB
+### 4.2 Create tables in both DBs
 
 ```bash
 mysql -u myuser -pmypassword network_monitor_local -e "
@@ -93,11 +93,11 @@ CREATE TABLE IF NOT EXISTS interruptions (
 );"
 ```
 
-## 5) Configura `setup.conf`
+## 5) Configure `setup.conf`
 
-Ogni host scrive nel DB del proprio `setup.conf`.
+Each host writes to the DB configured in its own `setup.conf`.
 
-### 5.1 NUC1 (writer local)
+### 5.1 NUC1 (`local` writer)
 
 ```bash
 sudo tee /opt/network_monitor/setup.conf >/dev/null <<'EOF_CONF'
@@ -110,7 +110,7 @@ REMOTE_DB_IP=10.10.27.11
 EOF_CONF
 ```
 
-### 5.2 NUC2 (writer remote)
+### 5.2 NUC2 (`remote` writer)
 
 ```bash
 sudo tee /opt/network_monitor/setup.conf >/dev/null <<'EOF_CONF'
@@ -123,35 +123,35 @@ REMOTE_DB_IP=10.10.27.10
 EOF_CONF
 ```
 
-## 6) Configura Grafana (su NUC1)
+## 6) Configure Grafana (on NUC1)
 
-Apri: `http://10.10.27.10:3000` (`admin/admin`).
+Open: `http://10.10.27.10:3000` (`admin/admin`).
 
-Datasource:
+Datasource mapping:
 - `LocalNetworkMonitor` -> host `10.10.27.10:3306`, DB `network_monitor_local`, user `myuser`
 - `RemoteNetworkMonitor` -> host `10.10.27.10:3306`, DB `network_monitor_remote`, user `myuser`
 
-## 7) Test principale (solo NUC1 -> NUC2)
+## 7) Main test (NUC1 -> NUC2 only)
 
-### 7.1 NUC2: avvia server iperf3
+### 7.1 On NUC2: start iperf3 server
 
 ```bash
 iperf3 -s -p 5050
 ```
 
-### 7.2 NUC1: avvia monitor
+### 7.2 On NUC1: start monitor
 
 ```bash
-network_monitor -i <IFACE_NUC1> -t 10.10.27.11 -S 10.10.27.10 -I <IFACE_NUC1> -p 5050 -m udp -l 1000
+network_monitor -i <NUC1_IFACE> -t 10.10.27.11 -S 10.10.27.10 -I <NUC1_IFACE> -p 5050 -m udp -l 1000
 ```
 
-Quando richiesto, premi `Invio` per confermare che il server sul target è attivo.
+When prompted, press `Enter` to confirm the target server is up.
 
-Lascia girare 120s, poi `Ctrl+C`.
+Let it run for ~120s, then stop with `Ctrl+C`.
 
-## 8) Verifica dati
+## 8) Validate data
 
-### 8.1 Local (deve crescere)
+### 8.1 Local DB (should increase)
 
 ```bash
 mysql -u myuser -pmypassword network_monitor_local -e "
@@ -162,7 +162,7 @@ SELECT timestamp, protocol, packet_size, executed_command
 FROM iperf_results ORDER BY id DESC LIMIT 5;"
 ```
 
-### 8.2 Remote (se non hai avviato monitor su NUC2 può restare vuoto)
+### 8.2 Remote DB (can stay empty if NUC2 monitor is not running)
 
 ```bash
 mysql -u myuser -pmypassword network_monitor_remote -e "
@@ -171,26 +171,26 @@ SELECT COUNT(*) AS ping_rows FROM ping_results;
 SELECT COUNT(*) AS intr_rows FROM interruptions;"
 ```
 
-## 9) Opzionale: abilita test bidirezionale reale
+## 9) Optional: real bidirectional test
 
-Per popolare anche `remote`:
+To populate `remote` with real measurements:
 
-1. Su NUC1 apri una nuova shell e avvia:
+1. On NUC1, open another shell and run:
 
 ```bash
 iperf3 -s -p 5050
 ```
 
-2. Su NUC2 avvia:
+2. On NUC2, run:
 
 ```bash
-network_monitor -i <IFACE_NUC2> -t 10.10.27.10 -S 10.10.27.11 -I <IFACE_NUC2> -p 5050 -m udp -l 1000
+network_monitor -i <NUC2_IFACE> -t 10.10.27.10 -S 10.10.27.11 -I <NUC2_IFACE> -p 5050 -m udp -l 1000
 ```
 
-Ora vedrai dati sia local che remote nella dashboard bidirezionale.
+Now both local and remote panels will show real data in the bidirectional dashboard.
 
-## Note
+## Notes
 
-- `network_monitor` avvia automaticamente **un iperf3 server locale**; serve comunque un server attivo anche sul target.
-- Per interruzioni visibili, usa run più lunghi e outage controllati.
-- Script demo in repo: `tests/scripts/`.
+- `network_monitor` automatically starts a **local iperf3 server**; you still need an active server on the target host.
+- For visible interruption events, run longer tests and inject controlled outages.
+- Demo lab scripts are in `tests/scripts/`.
