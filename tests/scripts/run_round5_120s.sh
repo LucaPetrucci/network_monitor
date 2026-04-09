@@ -148,8 +148,8 @@ prepare() {
       }
     }' >/tmp/remote_ds_round4.json
 
-  ./ns_manual_test.sh cleanup || true
-  ./ns_manual_test.sh setup
+  ./tests/scripts/ns_manual_test.sh cleanup || true
+  ./tests/scripts/ns_manual_test.sh setup
 }
 
 summary() {
@@ -196,7 +196,7 @@ main() {
   echo "[ROUND5] END UTC: $(date -u '+%F %T')"
   summary
 
-  ./ns_manual_test.sh cleanup
+  ./tests/scripts/ns_manual_test.sh cleanup
   echo "[ROUND5] DONE"
 }
 

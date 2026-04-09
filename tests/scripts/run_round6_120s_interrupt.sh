@@ -38,7 +38,7 @@ mirror_to_remote() {
   "
 }
 
-run_case_100s() {
+run_case_120s() {
   local mode="$1"
   local psize="$2"
   local label="$3"
@@ -47,20 +47,20 @@ run_case_100s() {
 
   local run_start
   run_start=$(date '+%F %T')
-  echo "[ROUND4][$label] START mode=$mode packet_size=$psize @ $(date -u '+%T')"
+  echo "[ROUND6][$label] START mode=$mode packet_size=$psize @ $(date -u '+%T')"
 
-  sudo bash -lc "nohup bash -c 'printf \"\\n\" | network_monitor -i vethA -t 10.10.0.2 -S 10.20.0.1 -I vethB -p 5050 -m $mode -l $psize' >/tmp/nm_round4_${label}.log 2>&1 & echo \$! >/tmp/nm_round4_${label}.pid"
+  sudo bash -lc "nohup bash -c 'printf \"\\n\" | network_monitor -i vethA -t 10.10.0.2 -S 10.20.0.1 -I vethB -p 5050 -m $mode -l $psize' >/tmp/nm_round6_${label}.log 2>&1 & echo \$! >/tmp/nm_round6_${label}.pid"
 
-  # total 100s = 35 + 12(outage) + 53
-  sleep 35
-  echo "[ROUND4][$label] OUTAGE down/up 12s @ $(date -u '+%T')"
+  # total 120s = 40 + 25(outage) + 55
+  sleep 40
+  echo "[ROUND6][$label] OUTAGE down/up 25s @ $(date -u '+%T')"
   sudo ip netns exec nsRemote ip link set dev vethA-ns down
-  sleep 12
+  sleep 25
   sudo ip netns exec nsRemote ip link set dev vethA-ns up
-  sleep 53
+  sleep 55
 
-  if [[ -f /tmp/nm_round4_${label}.pid ]]; then
-    sudo kill "$(cat /tmp/nm_round4_${label}.pid)" 2>/dev/null || true
+  if [[ -f /tmp/nm_round6_${label}.pid ]]; then
+    sudo kill "$(cat /tmp/nm_round6_${label}.pid)" 2>/dev/null || true
   fi
   sudo pkill -f "network_monitor -i vethA -t 10.10.0.2 -S 10.20.0.1 -I vethB -p 5050 -m $mode -l $psize" 2>/dev/null || true
   sleep 2
@@ -74,7 +74,7 @@ run_case_100s() {
   local_samples=$(mysql -u myuser -p'mypassword' network_monitor -Nse "SELECT COUNT(*) FROM iperf_results WHERE timestamp BETWEEN '$run_start' AND '$run_end';")
   remote_samples=$(mysql -u myuser -p'mypassword' network_monitor_remote_sim -Nse "SELECT COUNT(*) FROM iperf_results WHERE timestamp BETWEEN DATE_ADD('$run_start', INTERVAL 2 SECOND) AND DATE_ADD('$run_end', INTERVAL 2 SECOND);")
 
-  echo "[ROUND4][$label] END @ $(date -u '+%T') local_samples=$local_samples remote_samples=$remote_samples"
+  echo "[ROUND6][$label] END @ $(date -u '+%T') local_samples=$local_samples remote_samples=$remote_samples"
 }
 
 prepare() {
@@ -148,12 +148,12 @@ prepare() {
       }
     }' >/tmp/remote_ds_round4.json
 
-  ./ns_manual_test.sh cleanup || true
-  ./ns_manual_test.sh setup
+  ./tests/scripts/ns_manual_test.sh cleanup || true
+  ./tests/scripts/ns_manual_test.sh setup
 }
 
 summary() {
-  echo "[ROUND4] local grouped summary (last 4h)"
+  echo "[ROUND6] local grouped summary (last 4h)"
   mysql -u myuser -p'mypassword' network_monitor -e "
     SELECT protocol, packet_size, LEFT(executed_command,90) AS cmd, COUNT(*) AS samples,
            ROUND(AVG(bitrate),2) AS avg_mbps, ROUND(MAX(lost_percentage),2) AS max_loss,
@@ -164,7 +164,7 @@ summary() {
     ORDER BY end_ts DESC;
   "
 
-  echo "[ROUND4] remote_sim grouped summary (last 4h)"
+  echo "[ROUND6] remote_sim grouped summary (last 4h)"
   mysql -u myuser -p'mypassword' network_monitor_remote_sim -e "
     SELECT protocol, packet_size, LEFT(executed_command,90) AS cmd, COUNT(*) AS samples,
            ROUND(AVG(bitrate),2) AS avg_mbps, ROUND(MAX(lost_percentage),2) AS max_loss,
@@ -175,29 +175,29 @@ summary() {
     ORDER BY end_ts DESC;
   "
 
-  echo "[ROUND4] latest interruptions local"
+  echo "[ROUND6] latest interruptions local"
   mysql -u myuser -p'mypassword' network_monitor -e "SELECT id,timestamp,interruption_time FROM interruptions ORDER BY id DESC LIMIT 12;"
 
-  echo "[ROUND4] latest interruptions remote_sim"
+  echo "[ROUND6] latest interruptions remote_sim"
   mysql -u myuser -p'mypassword' network_monitor_remote_sim -e "SELECT id,timestamp,interruption_time FROM interruptions ORDER BY id DESC LIMIT 12;"
 }
 
 main() {
-  echo "[ROUND4] START UTC: $(date -u '+%F %T')"
+  echo "[ROUND6] START UTC: $(date -u '+%F %T')"
   prepare
 
-  run_case_100s udp 500 udp_500
-  run_case_100s udp 1000 udp_1000
-  run_case_100s udp 1472 udp_1472
-  run_case_100s tcp 500 tcp_500
-  run_case_100s tcp 1000 tcp_1000
-  run_case_100s tcp 1472 tcp_1472
+  run_case_120s udp 500 udp_500
+  run_case_120s udp 1000 udp_1000
+  run_case_120s udp 1472 udp_1472
+  run_case_120s tcp 500 tcp_500
+  run_case_120s tcp 1000 tcp_1000
+  run_case_120s tcp 1472 tcp_1472
 
-  echo "[ROUND4] END UTC: $(date -u '+%F %T')"
+  echo "[ROUND6] END UTC: $(date -u '+%F %T')"
   summary
 
-  ./ns_manual_test.sh cleanup
-  echo "[ROUND4] DONE"
+  ./tests/scripts/ns_manual_test.sh cleanup
+  echo "[ROUND6] DONE"
 }
 
 main "$@"

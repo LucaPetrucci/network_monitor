@@ -17,7 +17,7 @@ MONITOR_CMD=""
 usage() {
   cat <<'USAGE'
 Uso:
-  ./ns_manual_test.sh <blocco>
+  ./tests/scripts/ns_manual_test.sh <blocco>
 
 Blocchi disponibili:
   setup      Precheck + cleanup + creazione namespace/veth + IP/link
@@ -28,15 +28,15 @@ Blocchi disponibili:
   cleanup    Termina processi e rimuove namespace/veth
 
 Esempio sequenza manuale:
-  ./ns_manual_test.sh setup
-  ./ns_manual_test.sh target
-  ./ns_manual_test.sh monitor
-  ./ns_manual_test.sh extra
-  ./ns_manual_test.sh verify
-  ./ns_manual_test.sh cleanup
+  ./tests/scripts/ns_manual_test.sh setup
+  ./tests/scripts/ns_manual_test.sh target
+  ./tests/scripts/ns_manual_test.sh monitor
+  ./tests/scripts/ns_manual_test.sh extra
+  ./tests/scripts/ns_manual_test.sh verify
+  ./tests/scripts/ns_manual_test.sh cleanup
 
 Override DB (container):
-  DB_HOST=127.0.0.1 DB_PORT=3306 DB_USER=myuser DB_PASS=mypassword DB_NAME=comsa ./ns_manual_test.sh verify
+  DB_HOST=127.0.0.1 DB_PORT=3306 DB_USER=myuser DB_PASS=mypassword DB_NAME=comsa ./tests/scripts/ns_manual_test.sh verify
 USAGE
 }
 

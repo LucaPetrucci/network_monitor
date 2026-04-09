@@ -92,8 +92,8 @@ curl -sS -u admin:admin -H 'Content-Type: application/json' -X PUT \
     }
   }' >/tmp/remote_ds_update_round3.json
 
-./ns_manual_test.sh cleanup || true
-./ns_manual_test.sh setup
+./tests/scripts/ns_manual_test.sh cleanup || true
+./tests/scripts/ns_manual_test.sh setup
 
 run_case udp 500 udp_500
 run_case udp 1000 udp_1000
@@ -132,6 +132,6 @@ mysql -u myuser -p'mypassword' network_monitor -e "SELECT id,timestamp,interrupt
 echo "[ROUND3] interruptions remote_sim latest"
 mysql -u myuser -p'mypassword' network_monitor_remote_sim -e "SELECT id,timestamp,interruption_time FROM interruptions ORDER BY id DESC LIMIT 12;"
 
-./ns_manual_test.sh cleanup
+./tests/scripts/ns_manual_test.sh cleanup
 
 echo "[ROUND3] DONE"

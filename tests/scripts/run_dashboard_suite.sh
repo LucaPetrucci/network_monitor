@@ -141,9 +141,9 @@ main() {
 
   configure_runtime
 
-  ./ns_manual_test.sh cleanup || true
-  ./ns_manual_test.sh setup
-  ./ns_manual_test.sh target
+  ./tests/scripts/ns_manual_test.sh cleanup || true
+  ./tests/scripts/ns_manual_test.sh setup
+  ./tests/scripts/ns_manual_test.sh target
 
   run_case ROUND1 udp 500 udp_500
   run_case ROUND1 udp 1000 udp_1000
@@ -193,7 +193,7 @@ main() {
   log "[SUITE] Latest interruptions remote_sim"
   mysql -u myuser -p'mypassword' network_monitor_remote_sim -e "SELECT id,timestamp,interruption_time FROM interruptions ORDER BY id DESC LIMIT 12;"
 
-  ./ns_manual_test.sh cleanup
+  ./tests/scripts/ns_manual_test.sh cleanup
   log "[SUITE] DONE"
 }
 
