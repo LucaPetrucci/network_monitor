@@ -153,19 +153,44 @@ This ensures proper time filtering regardless of system timezone settings.
 
 Access Grafana at `http://localhost:3000` with credentials `admin/admin`.
 
-**Available dashboards:**
-- **Network Monitoring Dashboard**: Single-source local monitoring (data rate, jitter, loss, latency, interruptions, metadata, grouped test runs)
-- **Network Monitoring Dashboard (Bidirectional)**: Currently configured in **local fallback** mode so it shows the same data as the local dashboard until a real remote DB is available
-- **Network Monitoring Dashboard (Bidirectional - Timezone Fixed)_OLD**: Legacy dashboard kept for compatibility/reference
-- **Data sources**: `LocalNetworkMonitor` and `RemoteNetworkMonitor`
-- **Time ranges**: Supports various time ranges (6h, 24h, 7d, etc.)
-- **Auto-refresh**: Real-time updates every 5-30 seconds
+**Available dashboards (current):**
+- **Network Monitoring Dashboard**: Single-source monitoring from `LocalNetworkMonitor`
+- **Network Monitoring Dashboard (Bidirectional)**: Mixed dashboard comparing `LocalNetworkMonitor` and `RemoteNetworkMonitor`
 
-**Remote datasource placeholder (current setup):**
-- `RemoteNetworkMonitor` is preconfigured with a placeholder host (`192.168.1.100:3306`)
-- Database: `network_monitor`
-- If the remote host is unavailable, this is expected; dashboards still work in local fallback mode
-- When the remote DB is ready, update only the datasource host/credentials in Grafana
+**Configured data sources (current):**
+- `LocalNetworkMonitor` -> local MariaDB (`network_monitor`)
+- `RemoteNetworkMonitor` -> remote MariaDB (or simulated remote DB, depending on your environment)
+
+### Panel Guide
+
+#### Network Monitoring Dashboard
+- **Data Rate**: Throughput time-series (`iperf_results.bitrate`)
+- **Jitter**: Jitter time-series (`iperf_results.jitter`)
+- **Lost Packets**: Packet-loss time-series (`iperf_results.lost_percentage`)
+- **Latency**: Ping latency time-series (`ping_results.latency`)
+- **Interruption Time**: Interruption events over time (`interruptions.interruption_time`)
+- **Iperf3 Test Metadata**: Raw iperf samples with command metadata (`protocol`, `packet_size`, `executed_command`)
+- **Test Runs (Grouped by Command)**: Aggregated run view per command (`start/end`, duration, samples, avg throughput, max loss)
+- **Recent Interruptions**: Latest interruption records (`timestamp`, `interruption_time`)
+
+#### Network Monitoring Dashboard (Bidirectional)
+- **Data Rate / Jitter / Lost Packets / Latency / Interruption Time**:
+  - two series: `local` and `remote`
+  - each panel compares local and remote trends in the same chart
+- **Iperf3 Test Metadata - Local / Remote**:
+  - two separate tables (one per datasource)
+  - each table shows raw samples and exact `executed_command`
+- **Test Runs (Grouped by Command) - Local / Remote**:
+  - two separate run-summary tables (one per datasource)
+  - each run is segmented by timestamp gaps to avoid merging old runs with new runs using the same command
+- **Recent Interruptions - Local / Remote**:
+  - two separate interruption tables (one per datasource)
+  - sorted by latest timestamp first
+
+### Time Range Notes
+- Time-series panels use Grafana time filter (`$__timeFilter(timestamp)`), so they follow the selected dashboard range.
+- Table panels also use Grafana time filter (`$__timeFilter(timestamp)`), then apply row limits (`LIMIT`) for readability.
+- In the bidirectional dashboard, only time-series panels are mixed in one chart; table panels are split into explicit `Local` and `Remote` views for clarity.
 
 ### Run Grafana in Docker
 
@@ -176,11 +201,138 @@ cp .env.grafana.example .env.grafana
 docker compose -f docker-compose.grafana.yml up -d
 ```
 
-The stack loads dashboards from `network_monitor/grafana_dashboards/` and provisions:
+The stack loads dashboards from `docker/grafana/dashboards/` and provisions:
 - `LocalNetworkMonitor` MySQL datasource
 - `RemoteNetworkMonitor` MySQL datasource
 
+For manual API import/update workflows, editable dashboard JSON sources are also kept in `network_monitor/grafana_dashboards/`.
+
 If your DB runs on the host, keep `GRAFANA_DB_*_HOST=host.docker.internal` in `.env.grafana`.
+
+## Manual Two-NUC Test Procedure (NUC1 <-> NUC2)
+
+Use this model when you have two physical hosts:
+- **NUC1** = local node
+- **NUC2** = remote node
+
+### Current Behavior (Important)
+
+- Every `network_monitor` instance writes only to the DB configured on **that same host** in `/opt/network_monitor/setup.conf`.
+- So:
+  - `network_monitor` running on NUC1 writes **local** data.
+  - `network_monitor` running on NUC2 writes **remote** data.
+- This is true even if both write to the same MariaDB server.
+- For a real bidirectional dashboard, you must run the monitor on **both** NUC1 and NUC2.
+
+### Database Layout Options
+
+#### Option A (recommended): same MariaDB server, two databases
+- Example DB names:
+  - `network_monitor_local` (written by NUC1)
+  - `network_monitor_remote` (written by NUC2)
+- Grafana mapping:
+  - datasource `LocalNetworkMonitor` -> `network_monitor_local`
+  - datasource `RemoteNetworkMonitor` -> `network_monitor_remote`
+
+#### Option B: two separate MariaDB servers
+- `LocalNetworkMonitor` points to NUC1-side DB server.
+- `RemoteNetworkMonitor` points to NUC2-side DB server.
+
+### Step 1: Configure DB on Both NUCs
+
+Create/edit `/opt/network_monitor/setup.conf` on each host.
+
+#### NUC1 (`local` writer)
+```bash
+DB_HOST=<mariadb_host>
+DB_PORT=3306
+DB_NAME=network_monitor_local
+DB_USER=<db_user>
+DB_PASS=<db_pass>
+```
+
+#### NUC2 (`remote` writer)
+```bash
+DB_HOST=<mariadb_host>
+DB_PORT=3306
+DB_NAME=network_monitor_remote
+DB_USER=<db_user>
+DB_PASS=<db_pass>
+```
+
+Note: `DB_NAME` is what separates local vs remote datasets when using one MariaDB server.
+
+### Step 2: Configure Grafana Datasources
+
+On the Grafana host:
+- `LocalNetworkMonitor` must point to NUC1 writer DB (`network_monitor_local`).
+- `RemoteNetworkMonitor` must point to NUC2 writer DB (`network_monitor_remote`).
+
+Quick checks:
+```bash
+curl -s http://admin:admin@localhost:3000/api/datasources/name/LocalNetworkMonitor | jq '.name,.url,.user,.database,.jsonData.database'
+curl -s http://admin:admin@localhost:3000/api/datasources/name/RemoteNetworkMonitor | jq '.name,.url,.user,.database,.jsonData.database'
+```
+
+### Step 3: Start iperf3 Servers
+
+Use one terminal per host.
+
+#### On NUC2 (for NUC1 -> NUC2 tests)
+```bash
+iperf3 -s -p 5050
+```
+
+#### On NUC1 (for NUC2 -> NUC1 tests)
+```bash
+iperf3 -s -p 5050
+```
+
+### Step 4: Run Manual Tests (Both Perspectives)
+
+#### NUC1 run (produces `local`)
+```bash
+network_monitor -i <NUC1_iface> -t <NUC2_ip> -S <NUC1_bind_ip> -I <NUC1_bind_iface> -p 5050 -m udp -l 1000
+```
+
+#### NUC2 run (produces `remote`)
+```bash
+network_monitor -i <NUC2_iface> -t <NUC1_ip> -S <NUC2_bind_ip> -I <NUC2_bind_iface> -p 5050 -m udp -l 1000
+```
+
+Run both directions for true comparison in the bidirectional dashboard.
+
+### Step 5: Suggested Test Matrix
+
+Run on NUC1 and repeat on NUC2:
+- UDP `-l 500`
+- UDP `-l 1000`
+- UDP `-l 1472`
+- TCP `-l 500`
+- TCP `-l 1000`
+- TCP `-l 1472`
+
+Recommended duration per run: ~100 seconds.
+If you want interruption events, introduce a controlled link outage during each run.
+
+### Step 6: Verify That Local/Remote Are Truly Separate
+
+#### On NUC1-side DB (`network_monitor_local`)
+```bash
+mysql -u <db_user> -p<db_pass> network_monitor_local -e "SELECT COUNT(*) AS iperf_rows FROM iperf_results; SELECT MAX(timestamp) AS last_sample FROM iperf_results;"
+```
+
+#### On NUC2-side DB (`network_monitor_remote`)
+```bash
+mysql -u <db_user> -p<db_pass> network_monitor_remote -e "SELECT COUNT(*) AS iperf_rows FROM iperf_results; SELECT MAX(timestamp) AS last_sample FROM iperf_results;"
+```
+
+If only NUC1 is running `network_monitor`, only local DB grows. If only NUC2 runs, only remote DB grows.
+
+### Simulated Remote Mode (single host demo only)
+
+If NUC2 monitor is not running yet, you can simulate remote by copying local data to `network_monitor_remote_sim` with small variations.
+This is for visualization only, not a real remote measurement workflow.
 
 ## Troubleshooting
 

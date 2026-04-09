@@ -1,12 +1,12 @@
 {
   "dashboard": {
     "id": null,
-    "uid": null,
-    "title": "Network Monitoring Dashboard (Bidirectional - Local Fallback)",
+    "uid": "8a908fe9-382d-4023-b804-5718e12c6498",
+    "title": "Network Monitoring Dashboard (Bidirectional)",
     "tags": [
       "network",
       "monitoring",
-      "fallback"
+      "mixed"
     ],
     "timezone": "browser",
     "schemaVersion": 16,
@@ -17,14 +17,27 @@
         "type": "timeseries",
         "title": "Data Rate",
         "datasource": {
-          "type": "mysql",
-          "uid": "LocalNetworkMonitor"
+          "type": "datasource",
+          "uid": "-- Mixed --"
         },
         "targets": [
           {
+            "datasource": {
+              "type": "mysql",
+              "uid": "LocalNetworkMonitor"
+            },
             "format": "time_series",
-            "rawSql": "SELECT timestamp AS time, bitrate AS value FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
+            "rawSql": "SELECT timestamp AS time, bitrate AS value, 'local' AS metric FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
             "refId": "A"
+          },
+          {
+            "datasource": {
+              "type": "mysql",
+              "uid": "RemoteNetworkMonitor"
+            },
+            "format": "time_series",
+            "rawSql": "SELECT timestamp AS time, bitrate AS value, 'remote' AS metric FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
+            "refId": "B"
           }
         ],
         "fieldConfig": {
@@ -43,13 +56,26 @@
         "type": "timeseries",
         "title": "Jitter",
         "datasource": {
-          "type": "mysql",
-          "uid": "LocalNetworkMonitor"
+          "type": "datasource",
+          "uid": "-- Mixed --"
         },
         "targets": [
           {
+            "datasource": {
+              "type": "mysql",
+              "uid": "LocalNetworkMonitor"
+            },
             "format": "time_series",
-            "rawSql": "SELECT timestamp AS time, jitter AS value FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
+            "rawSql": "SELECT timestamp AS time, jitter AS value, 'local' AS metric FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
+            "refId": "A"
+          },
+          {
+            "datasource": {
+              "type": "mysql",
+              "uid": "RemoteNetworkMonitor"
+            },
+            "format": "time_series",
+            "rawSql": "SELECT timestamp AS time, jitter AS value, 'remote' AS metric FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
             "refId": "B"
           }
         ],
@@ -69,14 +95,27 @@
         "type": "timeseries",
         "title": "Lost Packets",
         "datasource": {
-          "type": "mysql",
-          "uid": "LocalNetworkMonitor"
+          "type": "datasource",
+          "uid": "-- Mixed --"
         },
         "targets": [
           {
+            "datasource": {
+              "type": "mysql",
+              "uid": "LocalNetworkMonitor"
+            },
             "format": "time_series",
-            "rawSql": "SELECT timestamp AS time, lost_percentage AS value FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
-            "refId": "C"
+            "rawSql": "SELECT timestamp AS time, lost_percentage AS value, 'local' AS metric FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
+            "refId": "A"
+          },
+          {
+            "datasource": {
+              "type": "mysql",
+              "uid": "RemoteNetworkMonitor"
+            },
+            "format": "time_series",
+            "rawSql": "SELECT timestamp AS time, lost_percentage AS value, 'remote' AS metric FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
+            "refId": "B"
           }
         ],
         "fieldConfig": {
@@ -95,14 +134,27 @@
         "type": "timeseries",
         "title": "Latency",
         "datasource": {
-          "type": "mysql",
-          "uid": "LocalNetworkMonitor"
+          "type": "datasource",
+          "uid": "-- Mixed --"
         },
         "targets": [
           {
+            "datasource": {
+              "type": "mysql",
+              "uid": "LocalNetworkMonitor"
+            },
             "format": "time_series",
-            "rawSql": "SELECT timestamp AS time, latency AS value FROM ping_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
-            "refId": "D"
+            "rawSql": "SELECT timestamp AS time, latency AS value, 'local' AS metric FROM ping_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
+            "refId": "A"
+          },
+          {
+            "datasource": {
+              "type": "mysql",
+              "uid": "RemoteNetworkMonitor"
+            },
+            "format": "time_series",
+            "rawSql": "SELECT timestamp AS time, latency AS value, 'remote' AS metric FROM ping_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
+            "refId": "B"
           }
         ],
         "fieldConfig": {
@@ -121,14 +173,27 @@
         "type": "timeseries",
         "title": "Interruption Time",
         "datasource": {
-          "type": "mysql",
-          "uid": "LocalNetworkMonitor"
+          "type": "datasource",
+          "uid": "-- Mixed --"
         },
         "targets": [
           {
+            "datasource": {
+              "type": "mysql",
+              "uid": "LocalNetworkMonitor"
+            },
             "format": "time_series",
-            "rawSql": "SELECT timestamp AS time, interruption_time AS value FROM interruptions WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
-            "refId": "E"
+            "rawSql": "SELECT timestamp AS time, interruption_time AS value, 'local' AS metric FROM interruptions WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
+            "refId": "A"
+          },
+          {
+            "datasource": {
+              "type": "mysql",
+              "uid": "RemoteNetworkMonitor"
+            },
+            "format": "time_series",
+            "rawSql": "SELECT timestamp AS time, interruption_time AS value, 'remote' AS metric FROM interruptions WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
+            "refId": "B"
           }
         ],
         "fieldConfig": {
@@ -150,7 +215,7 @@
       },
       {
         "type": "table",
-        "title": "Iperf3 Test Metadata",
+        "title": "Iperf3 Test Metadata - Local",
         "datasource": {
           "type": "mysql",
           "uid": "LocalNetworkMonitor"
@@ -158,8 +223,8 @@
         "targets": [
           {
             "format": "table",
-            "rawSql": "SELECT id, timestamp, protocol, packet_size, bitrate, jitter, lost_percentage, executed_command FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY id DESC LIMIT 100;",
-            "refId": "F"
+            "rawSql": "SELECT 'local' AS source, id, timestamp, protocol, packet_size, bitrate, jitter, lost_percentage, executed_command FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY timestamp DESC LIMIT 1000;",
+            "refId": "LOCAL_METADATA"
           }
         ],
         "options": {
@@ -174,16 +239,16 @@
       },
       {
         "type": "table",
-        "title": "Test Runs (Grouped by Command)",
+        "title": "Iperf3 Test Metadata - Remote",
         "datasource": {
           "type": "mysql",
-          "uid": "LocalNetworkMonitor"
+          "uid": "RemoteNetworkMonitor"
         },
         "targets": [
           {
             "format": "table",
-            "rawSql": "SELECT MIN(timestamp) AS start_time, MAX(timestamp) AS end_time, TIMESTAMPDIFF(SECOND, MIN(timestamp), MAX(timestamp)) AS duration_s, protocol, packet_size, executed_command, COUNT(*) AS samples, ROUND(AVG(bitrate), 2) AS avg_mbps, ROUND(MAX(lost_percentage), 2) AS max_loss_pct FROM iperf_results WHERE $__timeFilter(timestamp) GROUP BY executed_command, protocol, packet_size ORDER BY end_time DESC LIMIT 50;",
-            "refId": "G"
+            "rawSql": "SELECT 'remote' AS source, id, timestamp, protocol, packet_size, bitrate, jitter, lost_percentage, executed_command FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY timestamp DESC LIMIT 1000;",
+            "refId": "REMOTE_METADATA"
           }
         ],
         "options": {
@@ -198,7 +263,7 @@
       },
       {
         "type": "table",
-        "title": "Recent Interruptions",
+        "title": "Test Runs (Grouped by Command) - Local",
         "datasource": {
           "type": "mysql",
           "uid": "LocalNetworkMonitor"
@@ -206,8 +271,56 @@
         "targets": [
           {
             "format": "table",
-            "rawSql": "SELECT id, timestamp, interruption_time FROM interruptions WHERE $__timeFilter(timestamp) ORDER BY id DESC LIMIT 100;",
-            "refId": "H"
+            "rawSql": "WITH samples AS ( SELECT timestamp, protocol, packet_size, executed_command, bitrate, lost_percentage, CASE WHEN LAG(timestamp) OVER (PARTITION BY executed_command, protocol, packet_size ORDER BY timestamp) IS NULL THEN 1 WHEN TIMESTAMPDIFF(SECOND, LAG(timestamp) OVER (PARTITION BY executed_command, protocol, packet_size ORDER BY timestamp), timestamp) > 15 THEN 1 ELSE 0 END AS new_run FROM iperf_results WHERE $__timeFilter(timestamp) ), runs AS ( SELECT timestamp, protocol, packet_size, executed_command, bitrate, lost_percentage, SUM(new_run) OVER (PARTITION BY executed_command, protocol, packet_size ORDER BY timestamp ROWS UNBOUNDED PRECEDING) AS run_id FROM samples ) SELECT MIN(timestamp) AS start_time, MAX(timestamp) AS end_time, TIMESTAMPDIFF(SECOND, MIN(timestamp), MAX(timestamp)) + 1 AS duration_s, protocol, packet_size, executed_command, COUNT(*) AS samples, ROUND(AVG(bitrate), 2) AS avg_mbps, ROUND(MAX(COALESCE(lost_percentage, 0)), 2) AS max_loss_pct FROM runs GROUP BY executed_command, protocol, packet_size, run_id ORDER BY end_time DESC LIMIT 200;",
+            "refId": "LOCAL_RUNS"
+          }
+        ],
+        "options": {
+          "showHeader": true
+        },
+        "gridPos": {
+          "h": 10,
+          "w": 12,
+          "x": 0,
+          "y": 50
+        }
+      },
+      {
+        "type": "table",
+        "title": "Test Runs (Grouped by Command) - Remote",
+        "datasource": {
+          "type": "mysql",
+          "uid": "RemoteNetworkMonitor"
+        },
+        "targets": [
+          {
+            "format": "table",
+            "rawSql": "WITH samples AS ( SELECT timestamp, protocol, packet_size, executed_command, bitrate, lost_percentage, CASE WHEN LAG(timestamp) OVER (PARTITION BY executed_command, protocol, packet_size ORDER BY timestamp) IS NULL THEN 1 WHEN TIMESTAMPDIFF(SECOND, LAG(timestamp) OVER (PARTITION BY executed_command, protocol, packet_size ORDER BY timestamp), timestamp) > 15 THEN 1 ELSE 0 END AS new_run FROM iperf_results WHERE $__timeFilter(timestamp) ), runs AS ( SELECT timestamp, protocol, packet_size, executed_command, bitrate, lost_percentage, SUM(new_run) OVER (PARTITION BY executed_command, protocol, packet_size ORDER BY timestamp ROWS UNBOUNDED PRECEDING) AS run_id FROM samples ) SELECT MIN(timestamp) AS start_time, MAX(timestamp) AS end_time, TIMESTAMPDIFF(SECOND, MIN(timestamp), MAX(timestamp)) + 1 AS duration_s, protocol, packet_size, executed_command, COUNT(*) AS samples, ROUND(AVG(bitrate), 2) AS avg_mbps, ROUND(MAX(COALESCE(lost_percentage, 0)), 2) AS max_loss_pct FROM runs GROUP BY executed_command, protocol, packet_size, run_id ORDER BY end_time DESC LIMIT 200;",
+            "refId": "REMOTE_RUNS"
+          }
+        ],
+        "options": {
+          "showHeader": true
+        },
+        "gridPos": {
+          "h": 10,
+          "w": 12,
+          "x": 12,
+          "y": 50
+        }
+      },
+      {
+        "type": "table",
+        "title": "Recent Interruptions - Local",
+        "datasource": {
+          "type": "mysql",
+          "uid": "LocalNetworkMonitor"
+        },
+        "targets": [
+          {
+            "format": "table",
+            "rawSql": "SELECT id, timestamp, interruption_time FROM interruptions WHERE $__timeFilter(timestamp) ORDER BY timestamp DESC LIMIT 500;",
+            "refId": "LOCAL_INTERRUPTS"
           }
         ],
         "options": {
@@ -215,9 +328,33 @@
         },
         "gridPos": {
           "h": 8,
-          "w": 24,
+          "w": 12,
           "x": 0,
-          "y": 50
+          "y": 60
+        }
+      },
+      {
+        "type": "table",
+        "title": "Recent Interruptions - Remote",
+        "datasource": {
+          "type": "mysql",
+          "uid": "RemoteNetworkMonitor"
+        },
+        "targets": [
+          {
+            "format": "table",
+            "rawSql": "SELECT id, timestamp, interruption_time FROM interruptions WHERE $__timeFilter(timestamp) ORDER BY timestamp DESC LIMIT 500;",
+            "refId": "REMOTE_INTERRUPTS"
+          }
+        ],
+        "options": {
+          "showHeader": true
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 60
         }
       }
     ]

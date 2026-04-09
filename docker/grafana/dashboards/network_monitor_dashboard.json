@@ -156,7 +156,7 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT timestamp, protocol, packet_size, bitrate, jitter, lost_percentage, executed_command FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY timestamp DESC LIMIT 100;",
+          "rawSql": "SELECT id, timestamp, protocol, packet_size, bitrate, jitter, lost_percentage, executed_command FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY timestamp DESC LIMIT 1000;",
           "refId": "F"
         }
       ],
@@ -165,9 +165,57 @@
       },
       "gridPos": {
         "h": 10,
-        "w": 24,
+        "w": 12,
         "x": 0,
         "y": 40
+      }
+    },
+    {
+      "type": "table",
+      "title": "Test Runs (Grouped by Command)",
+      "datasource": {
+        "type": "mysql",
+        "uid": "LocalNetworkMonitor"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "WITH samples AS ( SELECT timestamp, protocol, packet_size, executed_command, bitrate, lost_percentage, CASE WHEN LAG(timestamp) OVER (PARTITION BY executed_command, protocol, packet_size ORDER BY timestamp) IS NULL THEN 1 WHEN TIMESTAMPDIFF(SECOND, LAG(timestamp) OVER (PARTITION BY executed_command, protocol, packet_size ORDER BY timestamp), timestamp) > 15 THEN 1 ELSE 0 END AS new_run FROM iperf_results WHERE $__timeFilter(timestamp) ), runs AS ( SELECT timestamp, protocol, packet_size, executed_command, bitrate, lost_percentage, SUM(new_run) OVER (PARTITION BY executed_command, protocol, packet_size ORDER BY timestamp ROWS UNBOUNDED PRECEDING) AS run_id FROM samples ) SELECT MIN(timestamp) AS start_time, MAX(timestamp) AS end_time, TIMESTAMPDIFF(SECOND, MIN(timestamp), MAX(timestamp)) + 1 AS duration_s, protocol, packet_size, executed_command, COUNT(*) AS samples, ROUND(AVG(bitrate), 2) AS avg_mbps, ROUND(MAX(COALESCE(lost_percentage, 0)), 2) AS max_loss_pct FROM runs GROUP BY executed_command, protocol, packet_size, run_id ORDER BY end_time DESC LIMIT 200;",
+          "refId": "G"
+        }
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      }
+    },
+    {
+      "type": "table",
+      "title": "Recent Interruptions",
+      "datasource": {
+        "type": "mysql",
+        "uid": "LocalNetworkMonitor"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT id, timestamp, interruption_time FROM interruptions WHERE $__timeFilter(timestamp) ORDER BY timestamp DESC LIMIT 500;",
+          "refId": "H"
+        }
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 50
       }
     }
   ]
