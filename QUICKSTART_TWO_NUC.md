@@ -84,14 +84,14 @@ for DB in network_monitor_nuc1 network_monitor_nuc2; do
 done
 ```
 
-## 5) Configure `/opt/network_monitor/setup.conf`
+## 5) Configure `/opt/network_monitor2/setup.conf`
 
 Each node must point to its own writer DB.
 
 ### 5.1 NUC1 (`10.10.27.10` -> writer DB `network_monitor_nuc1`)
 
 ```bash
-sudo tee /opt/network_monitor/setup.conf >/dev/null <<'EOF_CONF'
+sudo tee /opt/network_monitor2/setup.conf >/dev/null <<'EOF_CONF'
 DB_HOST=<NUC1_WRITER_DB_HOST>
 DB_PORT=3306
 DB_NAME=network_monitor_nuc1
@@ -104,7 +104,7 @@ EOF_CONF
 ### 5.2 NUC2 (`10.10.27.11` -> writer DB `network_monitor_nuc2`)
 
 ```bash
-sudo tee /opt/network_monitor/setup.conf >/dev/null <<'EOF_CONF'
+sudo tee /opt/network_monitor2/setup.conf >/dev/null <<'EOF_CONF'
 DB_HOST=<NUC2_WRITER_DB_HOST>
 DB_PORT=3306
 DB_NAME=network_monitor_nuc2
