@@ -1,7 +1,13 @@
 #!/bin/bash
 
-# Source setup.conf
-source /opt/network_monitor/setup.conf
+# Source setup.conf from this installation directory.
+SCRIPT_PATH="$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+if [ ! -f "$SCRIPT_DIR/setup.conf" ]; then
+  echo "Error: setup.conf not found in $SCRIPT_DIR"
+  exit 1
+fi
+source "$SCRIPT_DIR/setup.conf"
 
 # Initialize variables
 interface=""

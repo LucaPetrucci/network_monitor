@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Set the script directory
-SCRIPT_DIR="/opt/network_monitor"
+# Resolve installation directory from real script path (works with symlinks).
+SCRIPT_PATH="$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 
 # Function to check if script is run as superuser
 check_superuser() {
@@ -11,7 +12,11 @@ check_superuser() {
     fi
 }
 
-# Source the setup.conf file
+# Source setup.conf from the same installation directory.
+if [ ! -f "$SCRIPT_DIR/setup.conf" ]; then
+    echo "Error: setup.conf not found in $SCRIPT_DIR"
+    exit 1
+fi
 source "$SCRIPT_DIR/setup.conf"
 
 # Initialize variables

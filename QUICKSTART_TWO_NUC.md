@@ -8,8 +8,8 @@ Quick manual test guide with:
 
 Each node writes to its **own writer DB endpoint**.
 
-- `network_monitor` on NUC1 writes to NUC1 writer DB (logical local source).
-- `network_monitor` on NUC2 writes to NUC2 writer DB (logical remote source).
+- `network_monitor2` on NUC1 writes to NUC1 writer DB (logical local source).
+- `network_monitor2` on NUC2 writes to NUC2 writer DB (logical remote source).
 
 The writer DB can be local to the node or hosted elsewhere, as long as it is always reachable by that node.
 
@@ -35,7 +35,7 @@ git checkout dev
 ## 3) Install the tool (both NUCs)
 
 ```bash
-sudo bash ./setup.sh
+sudo bash ./setup_v2.sh
 ```
 
 ## 4) Create per-node writer DBs
@@ -137,7 +137,7 @@ iperf3 -s -p 5050
 ### 7.2 On NUC1: start monitor
 
 ```bash
-network_monitor -i <NUC1_IFACE> -t 10.10.27.11 -S 10.10.27.10 -I <NUC1_IFACE> -p 5050 -m udp -l 1000
+network_monitor2 -i <NUC1_IFACE> -t 10.10.27.11 -S 10.10.27.10 -I <NUC1_IFACE> -p 5050 -m udp -l 1000
 ```
 
 When prompted, press `Enter` to confirm target server availability.
@@ -179,13 +179,13 @@ iperf3 -s -p 5050
 2. On NUC2:
 
 ```bash
-network_monitor -i <NUC2_IFACE> -t 10.10.27.10 -S 10.10.27.11 -I <NUC2_IFACE> -p 5050 -m udp -l 1000
+network_monitor2 -i <NUC2_IFACE> -t 10.10.27.10 -S 10.10.27.11 -I <NUC2_IFACE> -p 5050 -m udp -l 1000
 ```
 
 Now both writer DBs contain real node-perspective data.
 
 ## Notes
 
-- `network_monitor` starts a local iperf3 server automatically; you still need an active server on the target host.
+- `network_monitor2` starts a local iperf3 server automatically; you still need an active server on the target host.
 - For visible interruption events, use longer runs and controlled outages.
 - Demo lab scripts are in `tests/scripts/`.

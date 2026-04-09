@@ -18,23 +18,33 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
+# Resolve installation directory from real script path.
+SCRIPT_PATH="$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+LAUNCHER_PATH="$SCRIPT_DIR/server_launcher.sh"
+
 # Source the setup.conf file
-if [ -f "/opt/network_monitor/setup.conf" ]; then
-    source /opt/network_monitor/setup.conf
+if [ -f "$SCRIPT_DIR/setup.conf" ]; then
+    source "$SCRIPT_DIR/setup.conf"
 else
     echo "setup.conf not found. Some operations may fail."
 fi
 
-# Remove the symbolic link
-if [ -L "/usr/local/bin/network_monitor" ]; then
-    rm /usr/local/bin/network_monitor
-    echo "Removed symbolic link: /usr/local/bin/network_monitor"
-fi
+# Remove matching symbolic links (network_monitor, network_monitor2, etc.)
+for link in /usr/local/bin/network_monitor /usr/local/bin/network_monitor2; do
+    if [ -L "$link" ]; then
+        target="$(readlink -f "$link" 2>/dev/null || true)"
+        if [ "$target" = "$LAUNCHER_PATH" ]; then
+            rm "$link"
+            echo "Removed symbolic link: $link"
+        fi
+    fi
+done
 
-# Remove the /opt/network_monitor directory
-if [ -d "/opt/network_monitor" ]; then
-    rm -rf /opt/network_monitor
-    echo "Removed directory: /opt/network_monitor"
+# Remove the installation directory
+if [ -d "$SCRIPT_DIR" ]; then
+    rm -rf "$SCRIPT_DIR"
+    echo "Removed directory: $SCRIPT_DIR"
 fi
 
 # Remove the database and user
