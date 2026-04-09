@@ -334,6 +334,23 @@ If only NUC1 is running `network_monitor`, only local DB grows. If only NUC2 run
 If NUC2 monitor is not running yet, you can simulate remote by copying local data to `network_monitor_remote_sim` with small variations.
 This is for visualization only, not a real remote measurement workflow.
 
+### Automated Lab Scripts (single-VM namespace demo)
+
+- `run_round5_120s.sh`:
+  - full matrix run (UDP/TCP x `500/1000/1472`)
+  - `120s` per run
+  - short outage injection per run
+- `run_round6_120s_interrupt.sh`:
+  - same full matrix and duration (`120s`)
+  - longer outage injection to force interruption recording
+  - use this when `Interruption Time` is empty and you want guaranteed interruption events
+
+Both scripts:
+- reset/setup Linux namespace testbed
+- write local data to `network_monitor`
+- mirror with variation to `network_monitor_remote_sim`
+- leave Grafana ready for Local vs Remote comparison
+
 ## Troubleshooting
 
 ### Common Issues
