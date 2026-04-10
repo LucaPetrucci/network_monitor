@@ -65,7 +65,9 @@ if command -v mysql >/dev/null 2>&1; then
   # Try admin socket first (works when run on DB host with root socket auth).
   mysql -e "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\`;" 2>/dev/null || true
 
-  mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -e "
+  mysql_cmd=(mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME")
+
+  "${mysql_cmd[@]}" -e "
   CREATE TABLE IF NOT EXISTS iperf_results (
     id INT AUTO_INCREMENT PRIMARY KEY,
     timestamp DATETIME(3),
@@ -88,7 +90,34 @@ if command -v mysql >/dev/null 2>&1; then
   );" || {
     echo "⚠️  Could not create tables automatically."
     echo "   Ensure DB '$DB_NAME' exists and user '$DB_USER' can CREATE/INSERT."
+    echo "   Connection used: $DB_USER@$DB_HOST:$DB_PORT/$DB_NAME"
+    exit 1
   }
+
+  # Schema migration for legacy v2 databases (pre-metadata columns).
+  ensure_column_exists() {
+    local table_name="$1"
+    local column_name="$2"
+    local column_def="$3"
+
+    local exists
+    exists=$("${mysql_cmd[@]}" -Nse \
+      "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='$DB_NAME' AND TABLE_NAME='$table_name' AND COLUMN_NAME='$column_name';" \
+      2>/dev/null || echo "0")
+
+    if [ "$exists" = "0" ]; then
+      echo "🔄 Adding missing column: ${table_name}.${column_name}"
+      "${mysql_cmd[@]}" -e \
+        "ALTER TABLE \`$table_name\` ADD COLUMN \`$column_name\` $column_def;" \
+        || { echo "❌ Failed to add ${table_name}.${column_name}"; exit 1; }
+    fi
+  }
+
+  ensure_column_exists "iperf_results" "executed_command" "TEXT"
+  ensure_column_exists "iperf_results" "protocol" "VARCHAR(16)"
+  ensure_column_exists "iperf_results" "packet_size" "INT"
+
+  echo "✅ DB schema is up to date for dashboard queries."
 fi
 
 echo

@@ -189,3 +189,4 @@ Now both writer DBs contain real node-perspective data.
 - `network_monitor2` starts a local iperf3 server automatically; you still need an active server on the target host.
 - For visible interruption events, use longer runs and controlled outages.
 - Demo lab scripts are in `tests/scripts/`.
+- Re-running `setup_v2.sh` is safe and also applies DB schema migration for legacy v2 databases (adds missing `iperf_results` metadata columns used by dashboards).
