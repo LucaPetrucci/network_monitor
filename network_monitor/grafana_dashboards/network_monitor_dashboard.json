@@ -22,7 +22,7 @@
         "targets": [
           {
             "format": "time_series",
-            "rawSql": "SELECT timestamp AS time, bitrate AS value FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
+            "rawSql": "SELECT UNIX_TIMESTAMP(timestamp) * 1000 AS time, bitrate AS value FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
             "refId": "A"
           }
         ],
@@ -48,7 +48,7 @@
         "targets": [
           {
             "format": "time_series",
-            "rawSql": "SELECT timestamp AS time, jitter AS value FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
+            "rawSql": "SELECT UNIX_TIMESTAMP(timestamp) * 1000 AS time, jitter AS value FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
             "refId": "B"
           }
         ],
@@ -74,7 +74,7 @@
         "targets": [
           {
             "format": "time_series",
-            "rawSql": "SELECT timestamp AS time, lost_percentage AS value FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
+            "rawSql": "SELECT UNIX_TIMESTAMP(timestamp) * 1000 AS time, lost_percentage AS value FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
             "refId": "C"
           }
         ],
@@ -100,7 +100,7 @@
         "targets": [
           {
             "format": "time_series",
-            "rawSql": "SELECT timestamp AS time, latency AS value FROM ping_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
+            "rawSql": "SELECT UNIX_TIMESTAMP(timestamp) * 1000 AS time, latency AS value FROM ping_results WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
             "refId": "D"
           }
         ],
@@ -126,7 +126,7 @@
         "targets": [
           {
             "format": "time_series",
-            "rawSql": "SELECT timestamp AS time, interruption_time AS value FROM interruptions WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
+            "rawSql": "SELECT UNIX_TIMESTAMP(timestamp) * 1000 AS time, interruption_time AS value FROM interruptions WHERE $__timeFilter(timestamp) ORDER BY time ASC;",
             "refId": "E"
           }
         ],
@@ -157,7 +157,7 @@
         "targets": [
           {
             "format": "table",
-            "rawSql": "SELECT id, timestamp, protocol, packet_size, bitrate, jitter, lost_percentage, executed_command FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY timestamp DESC LIMIT 1000;",
+            "rawSql": "SELECT id, DATE_FORMAT(timestamp, '%Y-%m-%d %H:%i:%s.%f') AS timestamp, protocol, packet_size, bitrate, jitter, lost_percentage, executed_command FROM iperf_results WHERE $__timeFilter(timestamp) ORDER BY timestamp DESC LIMIT 1000;",
             "refId": "F"
           }
         ],
@@ -181,7 +181,7 @@
         "targets": [
           {
             "format": "table",
-            "rawSql": "WITH samples AS ( SELECT timestamp, protocol, packet_size, executed_command, bitrate, lost_percentage, CASE WHEN LAG(timestamp) OVER (PARTITION BY executed_command, protocol, packet_size ORDER BY timestamp) IS NULL THEN 1 WHEN TIMESTAMPDIFF(SECOND, LAG(timestamp) OVER (PARTITION BY executed_command, protocol, packet_size ORDER BY timestamp), timestamp) > 15 THEN 1 ELSE 0 END AS new_run FROM iperf_results WHERE $__timeFilter(timestamp) ), runs AS ( SELECT timestamp, protocol, packet_size, executed_command, bitrate, lost_percentage, SUM(new_run) OVER (PARTITION BY executed_command, protocol, packet_size ORDER BY timestamp ROWS UNBOUNDED PRECEDING) AS run_id FROM samples ) SELECT MIN(timestamp) AS start_time, MAX(timestamp) AS end_time, TIMESTAMPDIFF(SECOND, MIN(timestamp), MAX(timestamp)) + 1 AS duration_s, protocol, packet_size, executed_command, COUNT(*) AS samples, ROUND(AVG(bitrate), 2) AS avg_mbps, ROUND(MAX(COALESCE(lost_percentage, 0)), 2) AS max_loss_pct FROM runs GROUP BY executed_command, protocol, packet_size, run_id ORDER BY end_time DESC LIMIT 200;",
+            "rawSql": "WITH samples AS ( SELECT timestamp, protocol, packet_size, executed_command, bitrate, lost_percentage, CASE WHEN LAG(timestamp) OVER (PARTITION BY executed_command, protocol, packet_size ORDER BY timestamp) IS NULL THEN 1 WHEN TIMESTAMPDIFF(SECOND, LAG(timestamp) OVER (PARTITION BY executed_command, protocol, packet_size ORDER BY timestamp), timestamp) > 15 THEN 1 ELSE 0 END AS new_run FROM iperf_results WHERE $__timeFilter(timestamp) ), runs AS ( SELECT timestamp, protocol, packet_size, executed_command, bitrate, lost_percentage, SUM(new_run) OVER (PARTITION BY executed_command, protocol, packet_size ORDER BY timestamp ROWS UNBOUNDED PRECEDING) AS run_id FROM samples ) SELECT DATE_FORMAT(MIN(timestamp), '%Y-%m-%d %H:%i:%s.%f') AS start_time, DATE_FORMAT(MAX(timestamp), '%Y-%m-%d %H:%i:%s.%f') AS end_time, TIMESTAMPDIFF(SECOND, MIN(timestamp), MAX(timestamp)) + 1 AS duration_s, protocol, packet_size, executed_command, COUNT(*) AS samples, ROUND(AVG(bitrate), 2) AS avg_mbps, ROUND(MAX(COALESCE(lost_percentage, 0)), 2) AS max_loss_pct FROM runs GROUP BY executed_command, protocol, packet_size, run_id ORDER BY end_time DESC LIMIT 200;",
             "refId": "G"
           }
         ],
@@ -205,7 +205,7 @@
         "targets": [
           {
             "format": "table",
-            "rawSql": "SELECT id, timestamp, interruption_time FROM interruptions WHERE $__timeFilter(timestamp) ORDER BY timestamp DESC LIMIT 500;",
+            "rawSql": "SELECT id, DATE_FORMAT(timestamp, '%Y-%m-%d %H:%i:%s.%f') AS timestamp, interruption_time FROM interruptions WHERE $__timeFilter(timestamp) ORDER BY timestamp DESC LIMIT 500;",
             "refId": "H"
           }
         ],

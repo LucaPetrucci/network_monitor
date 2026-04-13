@@ -63,16 +63,19 @@ The setup script automatically installs and configures:
 
 ```bash
 # Standard monitoring
-network_monitor -i <interface> -t <target_ip>
+network_monitor2 -i <interface> -t <target_ip>
 
 # With server binding (multi-interface systems)
-network_monitor -i <client_interface> -t <target_ip> -S <server_ip> -I <server_interface>
+network_monitor2 -i <client_interface> -t <target_ip> -S <server_ip> -I <server_interface>
+
+# Server-only mode (collect server-side iperf samples into local DB)
+network_monitor2 --server-only -i <interface> -S <server_ip> -I <server_interface> -p 5050 -m udp -l 1000
 
 # Custom port and bandwidth
-network_monitor -i eth0 -t 192.168.1.100 -p 5201 -b 100M
+network_monitor2 -i eth0 -t 192.168.1.100 -p 5201 -b 100M
 
 # Display help
-network_monitor -h
+network_monitor2 -h
 ```
 
 ### Command Options
@@ -83,6 +86,7 @@ network_monitor -h
 | `-t <target_ip>` | Target IP address | `-t 10.0.0.11` |
 | `-S <server_ip>` | Server binding IP | `-S 10.1.0.12` |
 | `-I <server_interface>` | Server binding interface | `-I eth1` |
+| `--server-only` | Run iperf3 server only and write server-side samples to local DB | `--server-only` |
 | `-p <port>` | iperf3 port (default: 5050) | `-p 5201` |
 | `-b <bandwidth>` | Bandwidth limit (UDP only, ignored in TCP) | `-b 100M` |
 | `-m <mode>` | Protocol mode for iperf3 (`udp` or `tcp`, default: `udp`) | `-m tcp` |
@@ -94,6 +98,16 @@ network_monitor -h
 - **Ctrl+C**: Gracefully stops all monitoring processes
 - **Automatic cleanup**: Terminates iperf3 server, client, ping, and interruption monitor
 - **Process tracking**: Shows PID information for all background processes
+
+### Server-Only Mode
+
+Use `--server-only` when you want one node to act as passive iperf3 server while still writing `iperf_results`
+to its own local DB (useful for bidirectional Grafana comparison without running two simultaneous client streams).
+
+Notes:
+- `--server-only` does not launch `iperf_client.sh` on that node.
+- `-m` and `-l` are saved as metadata (`protocol`, `packet_size`) in server-side inserted samples.
+- Run a regular `network_monitor2` command on the active node toward the passive server-only node.
 
 ## Technical Details
 
@@ -292,15 +306,29 @@ iperf3 -s -p 5050
 
 #### NUC1 run (produces `local`)
 ```bash
-network_monitor -i <NUC1_iface> -t <NUC2_ip> -S <NUC1_bind_ip> -I <NUC1_bind_iface> -p 5050 -m udp -l 1000
+network_monitor2 -i <NUC1_iface> -t <NUC2_ip> -S <NUC1_bind_ip> -I <NUC1_bind_iface> -p 5050 -m udp -l 1000
 ```
 
 #### NUC2 run (produces `remote`)
 ```bash
-network_monitor -i <NUC2_iface> -t <NUC1_ip> -S <NUC2_bind_ip> -I <NUC2_bind_iface> -p 5050 -m udp -l 1000
+network_monitor2 -i <NUC2_iface> -t <NUC1_ip> -S <NUC2_bind_ip> -I <NUC2_bind_iface> -p 5050 -m udp -l 1000
 ```
 
 Run both directions for true comparison in the bidirectional dashboard.
+
+### Step 4b: Single-Direction, Single-Stream (No bandwidth split)
+
+If you need one active stream only, but still want both DBs populated in the same time window:
+
+#### Passive node (remote datasource side)
+```bash
+network_monitor2 --server-only -i <PASSIVE_IFACE> -S <PASSIVE_IP> -I <PASSIVE_IFACE> -p 5050 -m udp -l 1000
+```
+
+#### Active node
+```bash
+network_monitor2 -i <ACTIVE_IFACE> -t <PASSIVE_IP> -S <ACTIVE_IP> -I <ACTIVE_IFACE> -p 5050 -m udp -l 1000
+```
 
 ### Step 5: Suggested Test Matrix
 
@@ -327,7 +355,7 @@ mysql -u <db_user> -p<db_pass> network_monitor_local -e "SELECT COUNT(*) AS iper
 mysql -u <db_user> -p<db_pass> network_monitor_remote -e "SELECT COUNT(*) AS iperf_rows FROM iperf_results; SELECT MAX(timestamp) AS last_sample FROM iperf_results;"
 ```
 
-If only NUC1 is running `network_monitor`, only local DB grows. If only NUC2 runs, only remote DB grows.
+If only NUC1 is running `network_monitor2`, only local DB grows. If only NUC2 runs, only remote DB grows.
 
 ### Simulated Remote Mode (single host demo only)
 

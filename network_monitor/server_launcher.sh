@@ -28,6 +28,7 @@ mode="udp"
 packet_size=""
 server_ip=""  # IP address to bind the iperf3 server to
 server_interface=""  # Network interface to bind the iperf3 server to
+server_only=false
 create_default=false
 uninstall=false
 uninstall_all=false
@@ -47,6 +48,7 @@ show_help() {
     echo "  -l <packet_size>     Packet size for iperf3 (applied via -l)"
     echo "  -S <server_ip>       Bind iperf3 server to specific IP address"
     echo "  -I <server_interface> Bind iperf3 server to specific network interface"
+    echo "  --server-only        Run only iperf3 server and write server-side samples to local DB"
     echo "  -d                   Create a default.conf file with current settings (requires superuser)"
     echo "  -u                   Uninstall the network monitor (requires superuser)"
     echo "  -a                   Used with -u, uninstall all associated programs (requires superuser)"
@@ -136,6 +138,7 @@ while [[ $# -gt 0 ]]; do
         -l) packet_size="$2"; shift 2 ;;
         -S) server_ip="$2"; shift 2 ;;
         -I) server_interface="$2"; shift 2 ;;
+        --server-only) server_only=true; shift ;;
         -d) create_default=true; check_superuser; shift ;;
         -u) uninstall=true; check_superuser; shift ;;
         -a) uninstall_all=true; shift ;;
@@ -184,7 +187,7 @@ if [ -z "$interface" ]; then
 fi
 
 # Check if target_ip is provided
-if [ -z "$target_ip" ]; then
+if [ "$server_only" = false ] && [ -z "$target_ip" ]; then
   echo "Error: Target IP not specified. Use -t flag to specify the target IP or set it in default.conf."
   exit 1
 fi
@@ -225,7 +228,9 @@ fi
 
 echo "📡 Client interface: $interface"
 echo "📡 Client IP address: $local_ip"
-echo "🎯 Target IP address: $target_ip"
+if [ -n "$target_ip" ]; then
+    echo "🎯 Target IP address: $target_ip"
+fi
 echo "⚙️  Mode: $mode"
 if [ -n "$packet_size" ]; then
     echo "📐 Packet size: $packet_size"
@@ -247,23 +252,149 @@ if netstat -tuln 2>/dev/null | grep -q ":$port "; then
 fi
 
 # Build iperf3 server command with binding options
-server_cmd="iperf3 -s -p $port"
+server_cmd=(iperf3 -s -p "$port")
 
 # Add server IP binding if specified
 if [ -n "$server_ip" ]; then
-    server_cmd="$server_cmd -B $server_ip"
+    server_cmd+=(-B "$server_ip")
     echo "🔗 Binding server to IP address: $server_ip"
 fi
 
 # Add server interface binding if specified
 if [ -n "$server_interface" ]; then
-    server_cmd="$server_cmd --bind-dev $server_interface"
+    server_cmd+=(--bind-dev "$server_interface")
     echo "🔗 Binding server to interface: $server_interface"
 fi
 
+# Shared DB helpers for server-side inserts.
+nm2_escape_sql() {
+    local value="$1"
+    printf '%s' "${value//"'"/"''"}"
+}
+
+nm2_normalize_bitrate() {
+    local value="$1"
+    local unit="${2^^}"
+    case "$unit" in
+        K)
+            awk -v val="$value" 'BEGIN {printf "%.3f", val / 1000}'
+            ;;
+        G)
+            awk -v val="$value" 'BEGIN {printf "%.3f", val * 1000}'
+            ;;
+        *)
+            awk -v val="$value" 'BEGIN {printf "%.3f", val}'
+            ;;
+    esac
+}
+
+nm2_make_mysql_cmd() {
+    local _arr_name="$1"
+    local -a _cmd=(mysql -u "$DB_USER" -p"$DB_PASS")
+    if [ -n "${DB_HOST:-}" ]; then
+        _cmd+=(-h "$DB_HOST")
+    fi
+    if [ -n "${DB_PORT:-}" ]; then
+        _cmd+=(-P "$DB_PORT")
+    fi
+    _cmd+=("$DB_NAME")
+    eval "$_arr_name=(\"\${_cmd[@]}\")"
+}
+
+nm2_extended_columns_supported="no"
+nm2_detect_schema_capabilities() {
+    local -a mysql_cmd=()
+    nm2_make_mysql_cmd mysql_cmd
+
+    local has_executed_command has_protocol has_packet_size
+    has_executed_command=$("${mysql_cmd[@]}" -Nse "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='$DB_NAME' AND TABLE_NAME='iperf_results' AND COLUMN_NAME='executed_command';" 2>/dev/null || echo 0)
+    has_protocol=$("${mysql_cmd[@]}" -Nse "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='$DB_NAME' AND TABLE_NAME='iperf_results' AND COLUMN_NAME='protocol';" 2>/dev/null || echo 0)
+    has_packet_size=$("${mysql_cmd[@]}" -Nse "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='$DB_NAME' AND TABLE_NAME='iperf_results' AND COLUMN_NAME='packet_size';" 2>/dev/null || echo 0)
+
+    if [ "$has_executed_command" = "1" ] && [ "$has_protocol" = "1" ] && [ "$has_packet_size" = "1" ]; then
+        nm2_extended_columns_supported="yes"
+    fi
+}
+
+nm2_insert_server_sample() {
+    local timestamp="$1"
+    local bitrate="$2"
+    local jitter="${3:-0}"
+    local loss="${4:-0}"
+    local executed_command="$5"
+    local mode_value="$6"
+    local packet_size_sql="$7"
+    local -a mysql_cmd=()
+    local escaped_command
+
+    nm2_make_mysql_cmd mysql_cmd
+    escaped_command=$(nm2_escape_sql "$executed_command")
+
+    if [ "$nm2_extended_columns_supported" = "yes" ]; then
+        "${mysql_cmd[@]}" -e \
+          "INSERT INTO iperf_results (timestamp, bitrate, jitter, lost_percentage, executed_command, protocol, packet_size) VALUES ('$timestamp', $bitrate, $jitter, $loss, '$escaped_command', '$mode_value', $packet_size_sql);" \
+          2>/dev/null || echo "⚠️  Failed to insert server sample at $timestamp"
+    else
+        "${mysql_cmd[@]}" -e \
+          "INSERT INTO iperf_results (timestamp, bitrate, jitter, lost_percentage) VALUES ('$timestamp', $bitrate, $jitter, $loss);" \
+          2>/dev/null || echo "⚠️  Failed to insert server sample at $timestamp"
+    fi
+}
+
+run_server_only_mode() {
+    local packet_size_sql="NULL"
+    local server_cmd_str
+    local throughput_regex='\[[[:space:]]*[0-9]+\][[:space:]]+([0-9.]+)-([0-9.]+)[[:space:]]+sec[[:space:]]+[0-9.]+[[:space:]]+[KMG]?Bytes[[:space:]]+([0-9.]+)[[:space:]]+([KMG]?)bits/sec'
+    local current_stream_base_time=""
+
+    if [ -n "$packet_size" ]; then
+        packet_size_sql="$packet_size"
+    fi
+
+    server_cmd_str="$(printf '%q ' "${server_cmd[@]}")"
+    server_cmd_str="${server_cmd_str% }"
+
+    nm2_detect_schema_capabilities
+
+    echo "📥 Server-only mode enabled: collecting server-side iperf samples into local DB."
+    echo "Starting iperf3 server with command: $server_cmd_str"
+    echo "💡 Press Ctrl+C to stop server-only mode"
+    echo
+
+    stdbuf -oL -eL "${server_cmd[@]}" 2>&1 | while IFS= read -r line; do
+        echo "$line"
+
+        if [[ $line =~ $throughput_regex ]]; then
+            local elapsed_start="${BASH_REMATCH[1]}"
+            local elapsed_end="${BASH_REMATCH[2]}"
+            local bitrate_raw="${BASH_REMATCH[3]}"
+            local unit="${BASH_REMATCH[4]}"
+            local bitrate
+            local measurement_time
+            local timestamp
+
+            # New stream starts from 0.00s in iperf output.
+            if [ "$elapsed_start" = "0.00" ] || [ -z "$current_stream_base_time" ]; then
+                current_stream_base_time=$(date +%s.%N)
+            fi
+
+            bitrate=$(nm2_normalize_bitrate "$bitrate_raw" "$unit")
+            measurement_time=$(awk -v base="$current_stream_base_time" -v offset="$elapsed_end" 'BEGIN {printf "%.3f", base + offset}')
+            timestamp=$(date -d "@$measurement_time" +"%Y-%m-%d %H:%M:%S.%3N")
+
+            nm2_insert_server_sample "$timestamp" "$bitrate" 0 0 "$server_cmd_str" "$mode" "$packet_size_sql"
+        fi
+    done
+}
+
+if [ "$server_only" = true ]; then
+    run_server_only_mode
+    exit 0
+fi
+
 # Start iperf3 server in the background with better error handling
-echo "Starting iperf3 server with command: $server_cmd"
-$server_cmd &
+echo "Starting iperf3 server with command: $(printf '%q ' "${server_cmd[@]}")"
+"${server_cmd[@]}" &
 server_pid=$!
 
 # Wait a moment for server to start

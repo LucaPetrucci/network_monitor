@@ -184,6 +184,32 @@ network_monitor2 -i <NUC2_IFACE> -t 10.10.27.10 -S 10.10.27.11 -I <NUC2_IFACE> -
 
 Now both writer DBs contain real node-perspective data.
 
+## 10) Single-direction test with remote DB population (`--server-only`)
+
+Use this when you want to avoid two simultaneous client streams (no bandwidth split), but still populate both DBs
+for Grafana `Local` vs `Remote` comparison.
+
+### 10.1 Passive node (server-only)
+
+Example on NUC1 (`10.10.27.10`):
+
+```bash
+network_monitor2 --server-only -i <NUC1_IFACE> -S 10.10.27.10 -I <NUC1_IFACE> -p 5050 -m udp -l 1000
+```
+
+### 10.2 Active node (full monitor)
+
+Example on NUC2 (`10.10.27.11`):
+
+```bash
+network_monitor2 -i <NUC2_IFACE> -t 10.10.27.10 -S 10.10.27.11 -I <NUC2_IFACE> -p 5050 -m udp -l 1000
+```
+
+In this setup:
+- active node writes client-side samples to its local DB
+- passive node writes server-side samples to its own local DB
+- Grafana on either side can compare `Local` and `Remote` from the same time window without dual client traffic
+
 ## Notes
 
 - `network_monitor2` starts a local iperf3 server automatically; you still need an active server on the target host.

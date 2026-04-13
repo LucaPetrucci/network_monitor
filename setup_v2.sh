@@ -29,9 +29,6 @@ DB_PORT="${DB_PORT:-3306}"
 
 read -r -p "DB name [network_monitor_v2]: " DB_NAME
 DB_NAME="${DB_NAME:-network_monitor_v2}"
-if [[ "$DB_NAME" != *_v2 ]]; then
-  DB_NAME="${DB_NAME}_v2"
-fi
 
 read -r -p "DB user: " DB_USER
 read -r -s -p "DB password: " DB_PASS
@@ -60,12 +57,36 @@ echo "✅ Created command /usr/local/bin/$COMMAND_NAME"
 
 # Best-effort DB bootstrap
 if command -v mysql >/dev/null 2>&1; then
-  echo "🗄️  Ensuring DB and tables exist..."
+  echo "🗄️  Ensuring DB access and schema..."
+  echo "   Target DB: $DB_USER@$DB_HOST:$DB_PORT/$DB_NAME"
 
-  # Try admin socket first (works when run on DB host with root socket auth).
-  mysql -e "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\`;" 2>/dev/null || true
+  # Preflight host:port reachability.
+  if ! timeout 3 bash -lc "echo > /dev/tcp/$DB_HOST/$DB_PORT" 2>/dev/null; then
+    echo "❌ Cannot reach MariaDB at $DB_HOST:$DB_PORT"
+    echo "   Check host/port/firewall and rerun setup."
+    exit 1
+  fi
+
+  # Try admin bootstrap first (socket/root auth on DB host).
+  if mysql -e "SELECT 1;" >/dev/null 2>&1; then
+    mysql -e "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\`;"
+    mysql -e "CREATE USER IF NOT EXISTS '$DB_USER'@'%' IDENTIFIED BY '$DB_PASS';"
+    mysql -e "GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_USER'@'%';"
+    mysql -e "FLUSH PRIVILEGES;"
+    echo "✅ Verified/created DB, user and grants (idempotent)."
+  else
+    echo "⚠️  Admin bootstrap skipped (no local mysql admin access)."
+    echo "   Expecting DB/user/grants to be already provisioned."
+  fi
 
   mysql_cmd=(mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME")
+
+  # Verify application login before schema operations.
+  if ! "${mysql_cmd[@]}" -e "SELECT 1;" >/dev/null 2>&1; then
+    echo "❌ App DB login failed for $DB_USER@$DB_HOST:$DB_PORT/$DB_NAME"
+    echo "   Check DB_USER/DB_PASS in $SETUP_CONF and user grants."
+    exit 1
+  fi
 
   "${mysql_cmd[@]}" -e "
   CREATE TABLE IF NOT EXISTS iperf_results (
