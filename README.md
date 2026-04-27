@@ -28,7 +28,6 @@ The runtime now supports configurable physical table names through `setup.conf`:
 ```bash
 git clone https://github.com/LucaPetrucci/network_monitor.git
 cd network_monitor
-git checkout final
 sudo bash ./setup_v2.sh
 ```
 

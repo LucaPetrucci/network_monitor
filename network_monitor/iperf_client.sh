@@ -141,6 +141,20 @@ normalize_bitrate() {
   esac
 }
 
+should_store_interval() {
+  local start="$1"
+  local end="$2"
+  awk -v start="$start" -v end="$end" '
+    BEGIN {
+      duration = end - start
+      if (duration >= 0.5 && duration <= 1.5) {
+        exit 0
+      }
+      exit 1
+    }
+  '
+}
+
 extended_columns_supported="no"
 detect_schema_capabilities() {
   local -a mysql_cmd=()
@@ -201,7 +215,27 @@ if [ "$mode" = "server" ]; then
   echo "Starting iperf3 server on port $port"
   stdbuf -oL -eL "${server_args[@]}" 2>&1 | while IFS= read -r line; do
     echo "$line"
-    if [[ $line =~ $throughput_regex ]]; then
+    if [ "$protocol" = "udp" ] && [[ $line =~ $udp_regex ]]; then
+      elapsed_start="${BASH_REMATCH[1]}"
+      elapsed_end="${BASH_REMATCH[2]}"
+      bitrate_raw="${BASH_REMATCH[3]}"
+      unit="${BASH_REMATCH[4]}"
+      jitter="${BASH_REMATCH[5]}"
+      loss="${BASH_REMATCH[8]}"
+
+      if [ "$elapsed_start" = "0.00" ] || [ -z "$current_stream_base_time" ]; then
+        current_stream_base_time=$(date +%s.%N)
+      fi
+
+      if ! should_store_interval "$elapsed_start" "$elapsed_end"; then
+        continue
+      fi
+
+      bitrate=$(normalize_bitrate "$bitrate_raw" "$unit")
+      measurement_time=$(awk -v base="$current_stream_base_time" -v offset="$elapsed_end" 'BEGIN {printf "%.3f", base + offset}')
+      timestamp=$(date -d "@$measurement_time" +"%Y-%m-%d %H:%M:%S.%3N")
+      insert_sample "$timestamp" "$bitrate" "$jitter" "$loss"
+    elif [[ $line =~ $throughput_regex ]]; then
       elapsed_start="${BASH_REMATCH[1]}"
       elapsed_end="${BASH_REMATCH[2]}"
       bitrate_raw="${BASH_REMATCH[3]}"
@@ -209,6 +243,10 @@ if [ "$mode" = "server" ]; then
 
       if [ "$elapsed_start" = "0.00" ] || [ -z "$current_stream_base_time" ]; then
         current_stream_base_time=$(date +%s.%N)
+      fi
+
+      if ! should_store_interval "$elapsed_start" "$elapsed_end"; then
+        continue
       fi
 
       bitrate=$(normalize_bitrate "$bitrate_raw" "$unit")
@@ -257,20 +295,30 @@ echo "Running iperf3 client against $target_ip"
 stdbuf -oL -eL "${iperf_args[@]}" | while IFS= read -r line; do
   echo "$line"
   if [ "$protocol" = "udp" ] && [[ $line =~ $udp_regex ]]; then
+    elapsed_start="${BASH_REMATCH[1]}"
     elapsed_end="${BASH_REMATCH[2]}"
     bitrate_raw="${BASH_REMATCH[3]}"
     unit="${BASH_REMATCH[4]}"
     jitter="${BASH_REMATCH[5]}"
     loss="${BASH_REMATCH[8]}"
 
+    if ! should_store_interval "$elapsed_start" "$elapsed_end"; then
+      continue
+    fi
+
     bitrate=$(normalize_bitrate "$bitrate_raw" "$unit")
     measurement_time=$(awk -v base="$start_time" -v offset="$elapsed_end" 'BEGIN {printf "%.3f", base + offset}')
     timestamp=$(date -d "@$measurement_time" +"%Y-%m-%d %H:%M:%S.%3N")
     insert_sample "$timestamp" "$bitrate" "$jitter" "$loss"
   elif [[ $line =~ $throughput_regex ]]; then
+    elapsed_start="${BASH_REMATCH[1]}"
     elapsed_end="${BASH_REMATCH[2]}"
     bitrate_raw="${BASH_REMATCH[3]}"
     unit="${BASH_REMATCH[4]}"
+
+    if ! should_store_interval "$elapsed_start" "$elapsed_end"; then
+      continue
+    fi
 
     bitrate=$(normalize_bitrate "$bitrate_raw" "$unit")
     measurement_time=$(awk -v base="$start_time" -v offset="$elapsed_end" 'BEGIN {printf "%.3f", base + offset}')

@@ -18,7 +18,6 @@ The rule is simple:
 ```bash
 git clone git@github.com:LucaPetrucci/network_monitor.git
 cd network_monitor
-git checkout final
 sudo bash ./setup_v2.sh
 ```
 
