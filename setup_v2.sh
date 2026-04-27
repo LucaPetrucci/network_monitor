@@ -10,6 +10,10 @@ REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_DIR="/opt/network_monitor2"
 COMMAND_NAME="network_monitor2"
 SETUP_CONF="$INSTALL_DIR/setup.conf"
+VENV_DIR="$INSTALL_DIR/.venv"
+IPERF_TABLE_DEFAULT="iperf_results"
+PING_TABLE_DEFAULT="ping_results"
+INTERRUPTIONS_TABLE_DEFAULT="interruptions"
 
 echo "========================================="
 echo "🚀 Network Monitor v2 Setup (coexisting)"
@@ -34,8 +38,14 @@ read -r -p "DB user: " DB_USER
 read -r -s -p "DB password: " DB_PASS
 echo
 
-read -r -p "Target/remote IP default (optional): " REMOTE_DB_IP
-REMOTE_DB_IP="${REMOTE_DB_IP:-}"
+read -r -p "iperf table [$IPERF_TABLE_DEFAULT]: " IPERF_TABLE
+IPERF_TABLE="${IPERF_TABLE:-$IPERF_TABLE_DEFAULT}"
+
+read -r -p "ping table [$PING_TABLE_DEFAULT]: " PING_TABLE
+PING_TABLE="${PING_TABLE:-$PING_TABLE_DEFAULT}"
+
+read -r -p "interruptions table [$INTERRUPTIONS_TABLE_DEFAULT]: " INTERRUPTIONS_TABLE
+INTERRUPTIONS_TABLE="${INTERRUPTIONS_TABLE:-$INTERRUPTIONS_TABLE_DEFAULT}"
 
 cat > "$SETUP_CONF" <<CFG
 DB_HOST=$DB_HOST
@@ -43,13 +53,18 @@ DB_PORT=$DB_PORT
 DB_NAME=$DB_NAME
 DB_USER=$DB_USER
 DB_PASS=$DB_PASS
-REMOTE_DB_IP=$REMOTE_DB_IP
+IPERF_TABLE=$IPERF_TABLE
+PING_TABLE=$PING_TABLE
+INTERRUPTIONS_TABLE=$INTERRUPTIONS_TABLE
 CFG
 
 echo "✅ Wrote config: $SETUP_CONF"
 
 cp "$REPO_ROOT"/network_monitor/*.sh "$INSTALL_DIR"/
+cp "$REPO_ROOT"/network_monitor/*.py "$INSTALL_DIR"/
+cp "$REPO_ROOT"/requirements.txt "$INSTALL_DIR"/
 chmod +x "$INSTALL_DIR"/*.sh
+chmod +x "$INSTALL_DIR"/*.py
 ln -sf "$INSTALL_DIR/server_launcher.sh" "/usr/local/bin/$COMMAND_NAME"
 
 echo "✅ Installed scripts in $INSTALL_DIR"
@@ -89,7 +104,7 @@ if command -v mysql >/dev/null 2>&1; then
   fi
 
   "${mysql_cmd[@]}" -e "
-  CREATE TABLE IF NOT EXISTS iperf_results (
+  CREATE TABLE IF NOT EXISTS \`$IPERF_TABLE\` (
     id INT AUTO_INCREMENT PRIMARY KEY,
     timestamp DATETIME(3),
     bitrate FLOAT,
@@ -99,12 +114,12 @@ if command -v mysql >/dev/null 2>&1; then
     protocol VARCHAR(16),
     packet_size INT
   );
-  CREATE TABLE IF NOT EXISTS ping_results (
+  CREATE TABLE IF NOT EXISTS \`$PING_TABLE\` (
     id INT AUTO_INCREMENT PRIMARY KEY,
     timestamp DATETIME(3),
     latency FLOAT
   );
-  CREATE TABLE IF NOT EXISTS interruptions (
+  CREATE TABLE IF NOT EXISTS \`$INTERRUPTIONS_TABLE\` (
     id INT AUTO_INCREMENT PRIMARY KEY,
     timestamp DATETIME(3),
     interruption_time FLOAT
@@ -134,16 +149,52 @@ if command -v mysql >/dev/null 2>&1; then
     fi
   }
 
-  ensure_column_exists "iperf_results" "executed_command" "TEXT"
-  ensure_column_exists "iperf_results" "protocol" "VARCHAR(16)"
-  ensure_column_exists "iperf_results" "packet_size" "INT"
+  ensure_column_exists "$IPERF_TABLE" "executed_command" "TEXT"
+  ensure_column_exists "$IPERF_TABLE" "protocol" "VARCHAR(16)"
+  ensure_column_exists "$IPERF_TABLE" "packet_size" "INT"
+
+  ensure_compat_view() {
+    local legacy_name="$1"
+    local source_table="$2"
+    local existing_base_type
+
+    if [ "$legacy_name" = "$source_table" ]; then
+      return
+    fi
+
+    existing_base_type=$("${mysql_cmd[@]}" -Nse \
+      "SELECT TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='$DB_NAME' AND TABLE_NAME='$legacy_name';" \
+      2>/dev/null || true)
+
+    if [ -n "$existing_base_type" ] && [ "$existing_base_type" != "VIEW" ]; then
+      echo "⚠️  Compatibility view '$legacy_name' not created because a base table with that name already exists."
+      return
+    fi
+
+    "${mysql_cmd[@]}" -e "DROP VIEW IF EXISTS \`$legacy_name\`;"
+    "${mysql_cmd[@]}" -e "CREATE VIEW \`$legacy_name\` AS SELECT * FROM \`$source_table\`;" \
+      || echo "⚠️  Failed to create compatibility view '$legacy_name' -> '$source_table'"
+  }
+
+  ensure_compat_view "iperf_results" "$IPERF_TABLE"
+  ensure_compat_view "ping_results" "$PING_TABLE"
+  ensure_compat_view "interruptions" "$INTERRUPTIONS_TABLE"
 
   echo "✅ DB schema is up to date for dashboard queries."
 fi
 
+echo "📦 Creating install-local Python virtual environment..."
+apt-get update
+apt-get install -y python3-venv
+python3 -m venv "$VENV_DIR"
+"$VENV_DIR/bin/pip" install --upgrade pip
+"$VENV_DIR/bin/pip" install -r "$INSTALL_DIR/requirements.txt"
+
 echo
 echo "========================================="
 echo "✅ v2 setup complete"
-echo "Run with: $COMMAND_NAME -i <iface> -t <target_ip>"
-echo "Example:  $COMMAND_NAME -i enp60s0 -t 10.10.27.11 -p 5050"
+echo "Server:   $COMMAND_NAME --server --bind-ip <local_test_ip>"
+echo "Client:   $COMMAND_NAME <target_ip> --source-ip <local_test_ip>"
+echo "Export:   $COMMAND_NAME --export-excel results.xlsx"
+echo "Python:   $VENV_DIR/bin/python3"
 echo "========================================="

@@ -57,5 +57,10 @@ CREATE TABLE IF NOT EXISTS network_monitor_local.interruptions (
   interruption_time FLOAT
 );
 
+-- If your deployment uses different physical table names, keep the Grafana-facing
+-- compatibility names as SQL views, for example:
+-- CREATE VIEW iperf_results AS SELECT * FROM nm_iperf_samples;
+-- CREATE VIEW ping_results AS SELECT * FROM nm_ping_samples;
+-- CREATE VIEW interruptions AS SELECT * FROM nm_interrupt_events;
 
 
