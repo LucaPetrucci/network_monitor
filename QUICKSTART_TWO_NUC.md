@@ -2,10 +2,10 @@
 
 Example layout:
 
-- NUC1 VLAN 28 test IP: `10.10.28.10`
-- NUC2 VLAN 28 test IP: `10.10.28.11`
-- NUC1 VLAN 29 test IP: `10.10.29.10`
-- NUC2 VLAN 29 test IP: `10.10.29.11`
+- Host A VLAN 28 test IP: `<HOST_A_VLAN28_IP>`
+- Host B VLAN 28 test IP: `<HOST_B_VLAN28_IP>`
+- Host A VLAN 29 test IP: `<HOST_A_VLAN29_IP>`
+- Host B VLAN 29 test IP: `<HOST_B_VLAN29_IP>`
 
 The rule is simple:
 
@@ -18,7 +18,7 @@ The rule is simple:
 ```bash
 git clone git@github.com:LucaPetrucci/network_monitor.git
 cd network_monitor
-git checkout dev
+git checkout final
 sudo bash ./setup_v2.sh
 ```
 
@@ -32,40 +32,40 @@ Example:
 
 ```bash
 sudo tee /opt/network_monitor2/setup.conf >/dev/null <<'EOF_CONF'
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_NAME=network_monitor_nuc1
-DB_USER=myuser
-DB_PASS=mypassword
+DB_HOST=<LOCAL_DB_HOST>
+DB_PORT=<LOCAL_DB_PORT>
+DB_NAME=<LOCAL_DB_NAME>
+DB_USER=<LOCAL_DB_USER>
+DB_PASS=<LOCAL_DB_PASSWORD>
 IPERF_TABLE=iperf_results
 PING_TABLE=ping_results
 INTERRUPTIONS_TABLE=interruptions
 EOF_CONF
 ```
 
-On the other NUC, use its own DB name, for example `network_monitor_nuc2`.
+On the other host, use its own local DB values.
 
 If your deployment uses different physical table names, set them here. The runtime will write to those configured tables.
 
 ## 3. Start server mode on Host A
 
-Example for VLAN 28 on NUC1:
+Example for VLAN 28 on Host A:
 
 ```bash
-network_monitor2 --server --bind-ip 10.10.28.10 --port 5050
+network_monitor2 --server --bind-ip <HOST_A_VLAN28_IP> --port 5050
 ```
 
-This starts `iperf3` server on NUC1 and stores server-side interval results into NUC1 local DB.
+This starts `iperf3` server on Host A and stores server-side interval results into the local DB of Host A.
 
 ## 4. Start client mode on Host B
 
-Example for VLAN 28 on NUC2:
+Example for VLAN 28 on Host B:
 
 ```bash
-network_monitor2 10.10.28.10 --source-ip 10.10.28.11 --duration 60
+network_monitor2 <HOST_A_VLAN28_IP> --source-ip <HOST_B_VLAN28_IP> --duration 60
 ```
 
-This does all of the following on NUC2:
+This does all of the following on Host B:
 
 - checks connectivity with `ping`
 - stores ping latency into NUC2 local DB
@@ -77,32 +77,32 @@ This does all of the following on NUC2:
 
 To reverse the direction, swap the roles.
 
-On NUC2:
+On Host B:
 
 ```bash
-network_monitor2 --server --bind-ip 10.10.28.11 --port 5050
+network_monitor2 --server --bind-ip <HOST_B_VLAN28_IP> --port 5050
 ```
 
-On NUC1:
+On Host A:
 
 ```bash
-network_monitor2 10.10.28.11 --source-ip 10.10.28.10 --duration 60
+network_monitor2 <HOST_B_VLAN28_IP> --source-ip <HOST_A_VLAN28_IP> --duration 60
 ```
 
 ## 6. Test VLAN 29
 
 Use the VLAN 29 IPs in the same way.
 
-On NUC1:
+On Host A:
 
 ```bash
-network_monitor2 --server --bind-ip 10.10.29.10
+network_monitor2 --server --bind-ip <HOST_A_VLAN29_IP>
 ```
 
-On NUC2:
+On Host B:
 
 ```bash
-network_monitor2 10.10.29.10 --source-ip 10.10.29.11
+network_monitor2 <HOST_A_VLAN29_IP> --source-ip <HOST_B_VLAN29_IP>
 ```
 
 Using the test IP itself is enough to distinguish VLAN 28 from VLAN 29 in stored metadata and Grafana tables.
@@ -143,7 +143,7 @@ network_monitor2 --help
 Example DB checks:
 
 ```bash
-mysql -u myuser -pmypassword network_monitor_nuc1 -e "
+mysql -u <LOCAL_DB_USER> -p<LOCAL_DB_PASSWORD> <LOCAL_DB_NAME> -e "
 SELECT COUNT(*) AS iperf_rows FROM iperf_results;
 SELECT COUNT(*) AS ping_rows FROM ping_results;
 SELECT COUNT(*) AS intr_rows FROM interruptions;

@@ -28,7 +28,7 @@ The runtime now supports configurable physical table names through `setup.conf`:
 ```bash
 git clone https://github.com/LucaPetrucci/network_monitor.git
 cd network_monitor
-git checkout dev
+git checkout final
 sudo bash ./setup_v2.sh
 ```
 
@@ -59,7 +59,7 @@ Start an `iperf3` server on the local host and store server-side interval result
 
 ```bash
 network_monitor2 --server
-network_monitor2 --server --bind-ip 10.10.28.10 --port 5050
+network_monitor2 --server --bind-ip <LOCAL_TEST_IP> --port 5050
 ```
 
 Use `--bind-ip` when the host has multiple VLAN IPs and you want the server to listen only on a specific test address.
@@ -69,10 +69,10 @@ Use `--bind-ip` when the host has multiple VLAN IPs and you want the server to l
 Client mode is the default. It verifies reachability with `ping`, stores latency in the local DB, starts interruption monitoring, then runs `iperf3` to the remote host and stores those results in the local DB.
 
 ```bash
-network_monitor2 10.10.28.11
-network_monitor2 10.10.28.11 --source-ip 10.10.28.10 --duration 60
-network_monitor2 10.10.29.11 --source-ip 10.10.29.10 --udp --bandwidth 100M
-network_monitor2 10.10.29.11 --source-ip 10.10.29.10 --tcp
+network_monitor2 <TARGET_IP>
+network_monitor2 <TARGET_IP> --source-ip <LOCAL_TEST_IP> --duration 60
+network_monitor2 <TARGET_IP> --source-ip <LOCAL_TEST_IP> --udp --bandwidth 100M
+network_monitor2 <TARGET_IP> --source-ip <LOCAL_TEST_IP> --tcp
 ```
 
 Use `--source-ip` when the client host has more than one test VLAN IP and you want to force the run over a specific subnet.
