@@ -21,6 +21,7 @@ port=5050
 duration=30
 protocol="udp"
 bandwidth=""
+packet_size=""
 metadata=""
 
 require_value() {
@@ -80,6 +81,11 @@ while [ $# -gt 0 ]; do
     --bandwidth)
       require_value "$1" "${2:-}"
       bandwidth="$2"
+      shift 2
+      ;;
+    --packet-size)
+      require_value "$1" "${2:-}"
+      packet_size="$2"
       shift 2
       ;;
     --metadata)
@@ -177,14 +183,20 @@ insert_sample() {
   local bitrate="$2"
   local jitter="${3:-0}"
   local loss="${4:-0}"
+  local sample_packet_size="${5:-}"
   local -a mysql_cmd=()
   local escaped_command
+  local sql_packet_size="NULL"
 
   make_mysql_cmd mysql_cmd
   escaped_command=$(escape_sql "$metadata")
 
+  if [ -n "$sample_packet_size" ]; then
+    sql_packet_size="$sample_packet_size"
+  fi
+
   if [ "$extended_columns_supported" = "yes" ]; then
-    "${mysql_cmd[@]}" -e "INSERT INTO \`$IPERF_TABLE\` (timestamp, bitrate, jitter, lost_percentage, executed_command, protocol, packet_size) VALUES ('$timestamp', $bitrate, $jitter, $loss, '$escaped_command', '$protocol', NULL);" \
+    "${mysql_cmd[@]}" -e "INSERT INTO \`$IPERF_TABLE\` (timestamp, bitrate, jitter, lost_percentage, executed_command, protocol, packet_size) VALUES ('$timestamp', $bitrate, $jitter, $loss, '$escaped_command', '$protocol', $sql_packet_size);" \
       2>/dev/null || echo "Warning: failed to insert iperf sample at $timestamp"
   else
     "${mysql_cmd[@]}" -e "INSERT INTO \`$IPERF_TABLE\` (timestamp, bitrate, jitter, lost_percentage) VALUES ('$timestamp', $bitrate, $jitter, $loss);" \
@@ -309,7 +321,7 @@ stdbuf -oL -eL "${iperf_args[@]}" | while IFS= read -r line; do
     bitrate=$(normalize_bitrate "$bitrate_raw" "$unit")
     measurement_time=$(awk -v base="$start_time" -v offset="$elapsed_end" 'BEGIN {printf "%.3f", base + offset}')
     timestamp=$(date -d "@$measurement_time" +"%Y-%m-%d %H:%M:%S.%3N")
-    insert_sample "$timestamp" "$bitrate" "$jitter" "$loss"
+    insert_sample "$timestamp" "$bitrate" "$jitter" "$loss" "$packet_size"
   elif [[ $line =~ $throughput_regex ]]; then
     elapsed_start="${BASH_REMATCH[1]}"
     elapsed_end="${BASH_REMATCH[2]}"
@@ -323,6 +335,6 @@ stdbuf -oL -eL "${iperf_args[@]}" | while IFS= read -r line; do
     bitrate=$(normalize_bitrate "$bitrate_raw" "$unit")
     measurement_time=$(awk -v base="$start_time" -v offset="$elapsed_end" 'BEGIN {printf "%.3f", base + offset}')
     timestamp=$(date -d "@$measurement_time" +"%Y-%m-%d %H:%M:%S.%3N")
-    insert_sample "$timestamp" "$bitrate" 0 0
+    insert_sample "$timestamp" "$bitrate" 0 0 "$packet_size"
   fi
 done

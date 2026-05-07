@@ -151,3 +151,23 @@ FROM iperf_results
 ORDER BY id DESC
 LIMIT 5;"
 ```
+
+## 10. Automated Cedex base measurements
+
+For the NUC2 -> NUC1 base-measurement campaign, edit the global variables at the top of:
+
+```bash
+tests/scripts/run_nuc2_base_measurements.sh
+```
+
+Then run it directly:
+
+```bash
+./tests/scripts/run_nuc2_base_measurements.sh
+```
+
+Notes:
+
+- The script uses `network_monitor2` so results continue to go through the existing DB and dashboard flow.
+- The script writes a small local log under `tests/logs/` by default.
+- Set `DRY_RUN=true` at the top of the script if you want to preview the command sequence first.

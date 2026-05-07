@@ -19,6 +19,7 @@ port=5050
 duration=30
 protocol="udp"
 bandwidth="100M"
+packet_size=""
 target_ip=""
 source_ip=""
 bind_ip=""
@@ -30,7 +31,7 @@ show_help() {
   cat <<'EOF'
 Usage:
   network_monitor2 --server [--bind-ip <local_ip>] [--port <port>] [--interface <iface>]
-  network_monitor2 <target_ip> [--source-ip <local_ip>] [--port <port>] [--duration <seconds>] [--udp|--tcp] [--bandwidth <rate>] [--interface <iface>]
+  network_monitor2 <target_ip> [--source-ip <local_ip>] [--port <port>] [--duration <seconds>] [--udp|--tcp] [--bandwidth <rate>] [--packet-size <size>] [--interface <iface>]
   network_monitor2 --export-excel <output.xlsx>
 
 Description:
@@ -48,6 +49,7 @@ Options:
   --udp                   Use UDP for iperf3 client (default).
   --tcp                   Use TCP for iperf3 client.
   --bandwidth <rate>      UDP bandwidth for iperf3 client (default: 100M).
+  --packet-size <size>    iperf3 client packet/buffer size.
   --export-excel <path>   Export local DB data to an Excel workbook.
   -h, --help              Show this help.
 
@@ -111,6 +113,11 @@ while [ $# -gt 0 ]; do
       bandwidth="$2"
       shift 2
       ;;
+    --packet-size)
+      require_value "$1" "${2:-}"
+      packet_size="$2"
+      shift 2
+      ;;
     --export-excel)
       require_value "$1" "${2:-}"
       export_excel="$2"
@@ -139,7 +146,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -n "$export_excel" ]; then
-  if [ "$server_mode" = true ] || [ -n "$target_ip" ] || [ -n "$source_ip" ] || [ -n "$bind_ip" ] || [ -n "$interface" ]; then
+  if [ "$server_mode" = true ] || [ -n "$target_ip" ] || [ -n "$source_ip" ] || [ -n "$bind_ip" ] || [ -n "$interface" ] || [ -n "$packet_size" ]; then
     echo "Error: --export-excel must be used by itself."
     exit 1
   fi
@@ -158,6 +165,11 @@ fi
 
 if [ "$protocol" = "tcp" ] && [ -n "$bandwidth" ]; then
   bandwidth=""
+fi
+
+if ! [[ -z "$packet_size" || "$packet_size" =~ ^[0-9]+$ ]]; then
+  echo "Error: --packet-size must be a positive integer."
+  exit 1
 fi
 
 make_metadata_string() {
@@ -181,6 +193,9 @@ make_metadata_string() {
     metadata="$metadata duration=${duration}s"
     if [ "$protocol" = "udp" ] && [ -n "$bandwidth" ]; then
       metadata="$metadata bandwidth=$bandwidth"
+    fi
+    if [ -n "$packet_size" ]; then
+      metadata="$metadata packet_size=$packet_size"
     fi
   fi
 
@@ -207,7 +222,7 @@ cleanup() {
 }
 
 if [ "$server_mode" = true ]; then
-  if [ -n "$target_ip" ] || [ -n "$source_ip" ]; then
+  if [ -n "$target_ip" ] || [ -n "$source_ip" ] || [ -n "$packet_size" ]; then
     echo "Error: client-only arguments cannot be used with --server."
     exit 1
   fi
@@ -258,6 +273,10 @@ fi
 
 if [ "$protocol" = "udp" ] && [ -n "$bandwidth" ]; then
   iperf_args+=(--bandwidth "$bandwidth")
+fi
+
+if [ -n "$packet_size" ]; then
+  iperf_args+=(--packet-size "$packet_size")
 fi
 
 if [ -n "$interface" ]; then

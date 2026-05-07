@@ -123,6 +123,7 @@ Options:
 - `--udp`: use UDP for the client, default
 - `--tcp`: use TCP for the client
 - `--bandwidth <rate>`: UDP bandwidth, default `100M`
+- `--packet-size <size>`: client packet/buffer size
 - `--export-excel <path>`: export local DB data to an Excel workbook
 - `-h, --help`: show help
 
