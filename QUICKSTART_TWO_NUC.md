@@ -114,6 +114,12 @@ Run on the host whose local DB you want to export:
 network_monitor2 --export-excel results.xlsx
 ```
 
+You can also export only a time range:
+
+```bash
+network_monitor2 --export-excel results_window.xlsx --start "2026-05-07 10:00:00" --end "2026-05-07 12:00:00"
+```
+
 The workbook includes:
 
 - `iperf_results`

@@ -25,14 +25,52 @@ source_ip=""
 bind_ip=""
 interface=""
 export_excel=""
+export_start=""
+export_end=""
 server_mode=false
+
+kill_descendants() {
+  local parent_pid="$1"
+  local signal="${2:-TERM}"
+  local child_pid
+
+  for child_pid in $(pgrep -P "$parent_pid" 2>/dev/null || true); do
+    kill_descendants "$child_pid" "$signal"
+    kill "-$signal" "$child_pid" 2>/dev/null || true
+  done
+}
+
+cleanup() {
+  local status=$?
+
+  if [ -n "${iperf_pid:-}" ]; then
+    kill_descendants "$iperf_pid" TERM
+    kill "$iperf_pid" 2>/dev/null || true
+  fi
+  if [ -n "${ping_pid:-}" ]; then
+    kill_descendants "$ping_pid" TERM
+    kill "$ping_pid" 2>/dev/null || true
+  fi
+  if [ -n "${interrupt_pid:-}" ]; then
+    kill_descendants "$interrupt_pid" TERM
+    kill "$interrupt_pid" 2>/dev/null || true
+  fi
+
+  wait "${iperf_pid:-}" 2>/dev/null || true
+  wait "${ping_pid:-}" 2>/dev/null || true
+  wait "${interrupt_pid:-}" 2>/dev/null || true
+
+  exit "$status"
+}
+
+trap cleanup INT TERM EXIT
 
 show_help() {
   cat <<'EOF'
 Usage:
   network_monitor2 --server [--bind-ip <local_ip>] [--port <port>] [--interface <iface>]
   network_monitor2 <target_ip> [--source-ip <local_ip>] [--port <port>] [--duration <seconds>] [--udp|--tcp] [--bandwidth <rate>] [--packet-size <size>] [--interface <iface>]
-  network_monitor2 --export-excel <output.xlsx>
+  network_monitor2 --export-excel <output.xlsx> [--start <timestamp>] [--end <timestamp>]
 
 Description:
   Simple two-host network monitoring tool.
@@ -51,12 +89,14 @@ Options:
   --bandwidth <rate>      UDP bandwidth for iperf3 client (default: 100M).
   --packet-size <size>    iperf3 client packet/buffer size.
   --export-excel <path>   Export local DB data to an Excel workbook.
+  --start <timestamp>     Inclusive lower timestamp bound for export.
+  --end <timestamp>       Inclusive upper timestamp bound for export.
   -h, --help              Show this help.
 
 Examples:
   network_monitor2 --server --bind-ip 10.10.28.10 --port 5050
   network_monitor2 10.10.28.11 --source-ip 10.10.28.10 --duration 60
-  network_monitor2 --export-excel results.xlsx
+  network_monitor2 --export-excel results.xlsx --start "2026-05-07 10:00:00" --end "2026-05-07 12:00:00"
 EOF
 }
 
@@ -123,6 +163,16 @@ while [ $# -gt 0 ]; do
       export_excel="$2"
       shift 2
       ;;
+    --start)
+      require_value "$1" "${2:-}"
+      export_start="$2"
+      shift 2
+      ;;
+    --end)
+      require_value "$1" "${2:-}"
+      export_end="$2"
+      shift 2
+      ;;
     -h|--help)
       show_help
       exit 0
@@ -147,10 +197,17 @@ done
 
 if [ -n "$export_excel" ]; then
   if [ "$server_mode" = true ] || [ -n "$target_ip" ] || [ -n "$source_ip" ] || [ -n "$bind_ip" ] || [ -n "$interface" ] || [ -n "$packet_size" ]; then
-    echo "Error: --export-excel must be used by itself."
+    echo "Error: --export-excel cannot be combined with client/server run options."
     exit 1
   fi
-  exec "$PYTHON_BIN" "$SCRIPT_DIR/export_excel.py" "$export_excel"
+  export_args=("$export_excel")
+  if [ -n "$export_start" ]; then
+    export_args+=(--start "$export_start")
+  fi
+  if [ -n "$export_end" ]; then
+    export_args+=(--end "$export_end")
+  fi
+  exec "$PYTHON_BIN" "$SCRIPT_DIR/export_excel.py" "${export_args[@]}"
 fi
 
 if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -le 0 ]; then
@@ -202,25 +259,6 @@ make_metadata_string() {
   printf '%s' "$metadata"
 }
 
-cleanup() {
-  local status=$?
-
-  if [ -n "${iperf_pid:-}" ]; then
-    kill "$iperf_pid" 2>/dev/null || true
-  fi
-  if [ -n "${ping_pid:-}" ]; then
-    kill "$ping_pid" 2>/dev/null || true
-  fi
-  if [ -n "${interrupt_pid:-}" ]; then
-    kill "$interrupt_pid" 2>/dev/null || true
-  fi
-  wait "${iperf_pid:-}" 2>/dev/null || true
-  wait "${ping_pid:-}" 2>/dev/null || true
-  wait "${interrupt_pid:-}" 2>/dev/null || true
-
-  exit "$status"
-}
-
 if [ "$server_mode" = true ]; then
   if [ -n "$target_ip" ] || [ -n "$source_ip" ] || [ -n "$packet_size" ]; then
     echo "Error: client-only arguments cannot be used with --server."
@@ -245,6 +283,11 @@ if [ -z "$target_ip" ]; then
   exit 1
 fi
 
+if [ -n "$export_start" ] || [ -n "$export_end" ]; then
+  echo "Error: --start and --end can only be used with --export-excel."
+  exit 1
+fi
+
 echo "Checking connectivity to $target_ip..."
 ping_check_args=(--target-ip "$target_ip" --count 1 --timeout 2)
 if [ -n "$source_ip" ]; then
@@ -255,8 +298,6 @@ fi
 
 "$SCRIPT_DIR/ping_client.sh" --check-only "${ping_check_args[@]}"
 echo "Connectivity check succeeded."
-
-trap cleanup INT TERM EXIT
 
 ping_args=(--target-ip "$target_ip")
 interrupt_args=(--target-ip "$target_ip")

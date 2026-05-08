@@ -82,6 +82,34 @@ elif [ -n "$interface" ]; then
 fi
 ping_args+=("$target_ip")
 
+kill_descendants() {
+  local parent_pid="$1"
+  local signal="${2:-TERM}"
+  local child_pid
+
+  for child_pid in $(pgrep -P "$parent_pid" 2>/dev/null || true); do
+    kill_descendants "$child_pid" "$signal"
+    kill "-$signal" "$child_pid" 2>/dev/null || true
+  done
+}
+
+cleanup() {
+  local status=$?
+  if [ -n "${ping_pid:-}" ]; then
+    kill_descendants "$ping_pid" TERM
+    kill "$ping_pid" 2>/dev/null || true
+    wait "$ping_pid" 2>/dev/null || true
+  fi
+  if [ -n "${ping_fifo:-}" ] && [ -p "$ping_fifo" ]; then
+    rm -f "$ping_fifo" 2>/dev/null || true
+  fi
+  kill_descendants "$$" TERM
+  wait 2>/dev/null || true
+  exit "$status"
+}
+
+trap cleanup INT TERM EXIT
+
 if [ "$check_only" = true ]; then
   "${ping_args[@]}" >/dev/null 2>&1
   exit $?
@@ -99,11 +127,21 @@ if [ -n "$db_port" ]; then
 fi
 mysql_cmd+=("$DB_NAME")
 
-stdbuf -oL -eL "${ping_args[@]}" | while IFS= read -r line; do
+ping_fifo="$(mktemp -u)"
+mkfifo "$ping_fifo"
+stdbuf -oL -eL "${ping_args[@]}" > "$ping_fifo" 2>/dev/null &
+ping_pid=$!
+
+while IFS= read -r line; do
   if [[ $line =~ time=([0-9.]+)[[:space:]]ms ]]; then
     timestamp=$(date +"%Y-%m-%d %H:%M:%S.%3N")
     latency="${BASH_REMATCH[1]}"
     "${mysql_cmd[@]}" -e "INSERT INTO \`$PING_TABLE\` (timestamp, latency) VALUES ('$timestamp', $latency);" 2>/dev/null || \
       echo "Warning: failed to insert ping sample at $timestamp"
   fi
-done
+done < "$ping_fifo"
+
+wait "$ping_pid" 2>/dev/null || true
+rm -f "$ping_fifo" 2>/dev/null || true
+
+trap - INT TERM EXIT

@@ -74,6 +74,17 @@ elif [ -n "$interface" ]; then
 fi
 ping_args+=("$target_ip")
 
+kill_descendants() {
+  local parent_pid="$1"
+  local signal="${2:-TERM}"
+  local child_pid
+
+  for child_pid in $(pgrep -P "$parent_pid" 2>/dev/null || true); do
+    kill_descendants "$child_pid" "$signal"
+    kill "-$signal" "$child_pid" 2>/dev/null || true
+  done
+}
+
 first_failure_time=0
 first_success_after_down_time=0
 disconnected=false
@@ -82,6 +93,15 @@ consecutive_successes=0
 failure_threshold=5
 recovery_threshold=3
 min_interruption_duration=2.0
+
+cleanup() {
+  local status=$?
+  kill_descendants "$$" TERM
+  wait 2>/dev/null || true
+  exit "$status"
+}
+
+trap cleanup INT TERM EXIT
 
 while true; do
   if "${ping_args[@]}" >/dev/null 2>&1; then
@@ -122,3 +142,5 @@ while true; do
   fi
   sleep 1
 done
+
+trap - INT TERM EXIT

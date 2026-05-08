@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
+import argparse
 import sys
 from pathlib import Path
 from subprocess import run
+from typing import Optional
 
 try:
     from openpyxl import Workbook
@@ -29,6 +31,10 @@ def load_config(path: Path) -> dict:
     return config
 
 
+def escape_sql(value: str) -> str:
+    return value.replace("'", "''")
+
+
 def run_query(config: dict, sql: str) -> list[list[str]]:
     cmd = [
         "mysql",
@@ -51,6 +57,17 @@ def run_query(config: dict, sql: str) -> list[list[str]]:
     return rows
 
 
+def build_where_clause(start: Optional[str], end: Optional[str]) -> str:
+    clauses = []
+    if start:
+        clauses.append(f"timestamp >= '{escape_sql(start)}'")
+    if end:
+        clauses.append(f"timestamp <= '{escape_sql(end)}'")
+    if not clauses:
+        return ""
+    return " WHERE " + " AND ".join(clauses)
+
+
 def add_sheet(workbook: Workbook, title: str, rows: list[list[str]]) -> None:
     worksheet = workbook.create_sheet(title=title)
     for row in rows:
@@ -58,15 +75,28 @@ def add_sheet(workbook: Workbook, title: str, rows: list[list[str]]) -> None:
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print("Usage: network_monitor2 --export-excel <output.xlsx>", file=sys.stderr)
-        return 1
+    parser = argparse.ArgumentParser(
+        prog="network_monitor2 --export-excel",
+        description="Export locally collected data to an Excel workbook.",
+    )
+    parser.add_argument("output_path", help="Output .xlsx file")
+    parser.add_argument(
+        "--start",
+        dest="start",
+        help="Inclusive start timestamp filter, for example '2026-05-07 10:00:00'",
+    )
+    parser.add_argument(
+        "--end",
+        dest="end",
+        help="Inclusive end timestamp filter, for example '2026-05-07 18:00:00'",
+    )
+    args = parser.parse_args()
 
     if not SETUP_CONF.exists():
         print(f"Error: setup.conf not found in {SCRIPT_DIR}", file=sys.stderr)
         return 1
 
-    output_path = Path(sys.argv[1]).expanduser().resolve()
+    output_path = Path(args.output_path).expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     config = load_config(SETUP_CONF)
@@ -79,22 +109,31 @@ def main() -> int:
     iperf_table = config.get("IPERF_TABLE", "iperf_results")
     ping_table = config.get("PING_TABLE", "ping_results")
     interruptions_table = config.get("INTERRUPTIONS_TABLE", "interruptions")
+    where_clause = build_where_clause(args.start, args.end)
+    if args.start and args.end:
+        range_label = f"{args.start} .. {args.end}"
+    elif args.start:
+        range_label = f"from {args.start}"
+    elif args.end:
+        range_label = f"until {args.end}"
+    else:
+        range_label = "all available rows"
 
     workbook = Workbook()
     workbook.remove(workbook.active)
 
     queries = {
-        "iperf_results": f"SELECT id, timestamp, bitrate, jitter, lost_percentage, protocol, packet_size, executed_command FROM `{iperf_table}` ORDER BY timestamp ASC;",
-        "ping_results": f"SELECT id, timestamp, latency FROM `{ping_table}` ORDER BY timestamp ASC;",
-        "interruptions": f"SELECT id, timestamp, interruption_time FROM `{interruptions_table}` ORDER BY timestamp ASC;",
-        "commands": f"SELECT id, timestamp, protocol, packet_size, executed_command FROM `{iperf_table}` ORDER BY timestamp ASC;",
+        "iperf_results": f"SELECT id, timestamp, bitrate, jitter, lost_percentage, protocol, packet_size, executed_command FROM `{iperf_table}`{where_clause} ORDER BY timestamp ASC;",
+        "ping_results": f"SELECT id, timestamp, latency FROM `{ping_table}`{where_clause} ORDER BY timestamp ASC;",
+        "interruptions": f"SELECT id, timestamp, interruption_time FROM `{interruptions_table}`{where_clause} ORDER BY timestamp ASC;",
+        "commands": f"SELECT id, timestamp, protocol, packet_size, executed_command FROM `{iperf_table}`{where_clause} ORDER BY timestamp ASC;",
     }
 
     for sheet_name, query in queries.items():
         add_sheet(workbook, sheet_name, run_query(config, query))
 
     workbook.save(output_path)
-    print(f"Exported Excel workbook to {output_path}")
+    print(f"Exported Excel workbook to {output_path} ({range_label})")
     return 0
 
 

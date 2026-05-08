@@ -13,17 +13,20 @@ NETWORK_MONITOR_CMD="network_monitor2"
 
 # network_monitor2 arguments shared by all cases.
 PORT=5050
-DURATION=60
+DURATION=120
 PAUSE=20
 REPETITIONS=1
 DRY_RUN=false
 LOG_DIR="$REPO_ROOT/tests/logs"
+RUN_TIMEOUT=0
 
 # Edit these lists directly when you want to narrow the campaign.
 # Use comma-separated strings, for example: PROTOCOLS="udp,tcp".
 PROTOCOLS="udp,tcp"
+# BANDWIDTHS="1M"
 BANDWIDTHS="1M,10M,50M,100M,250M,500M,750M,1G"
 PACKET_SIZES="500,1000,1472"
+# PACKET_SIZES="500"
 
 # Empty means "use all test paths".
 VLAN_FILTER=""
@@ -32,6 +35,39 @@ VLAN_FILTER=""
 TEST_PATHS="28|5|10.10.28.11|10.10.28.10,29|6|10.10.29.11|10.10.29.10"
 
 log_file=""
+cleanup_in_progress=false
+
+kill_descendants() {
+  local parent_pid="$1"
+  local signal="${2:-TERM}"
+  local child_pid
+
+  for child_pid in $(pgrep -P "$parent_pid" 2>/dev/null || true); do
+    kill_descendants "$child_pid" "$signal"
+    kill "-$signal" "$child_pid" 2>/dev/null || true
+  done
+}
+
+cleanup() {
+  local status=$?
+
+  if [ "$cleanup_in_progress" = true ]; then
+    exit "$status"
+  fi
+  cleanup_in_progress=true
+
+  trap - INT TERM EXIT
+
+  if [ "$DRY_RUN" = false ]; then
+    kill_descendants "$$" TERM
+    sleep 1
+    kill_descendants "$$" KILL
+  fi
+
+  exit "$status"
+}
+
+trap cleanup INT TERM EXIT
 
 log() {
   local ts
@@ -99,6 +135,11 @@ validate_positive_int "$PORT" "port"
 validate_positive_int "$DURATION" "duration"
 validate_positive_int "$PAUSE" "pause"
 validate_positive_int "$REPETITIONS" "repetitions"
+
+if [ "$RUN_TIMEOUT" -le 0 ]; then
+  RUN_TIMEOUT=$((DURATION + 30))
+fi
+validate_positive_int "$RUN_TIMEOUT" "run timeout"
 
 if [ "${#PROTOCOLS[@]}" -eq 0 ]; then
   echo "Error: at least one protocol is required." >&2
@@ -213,12 +254,14 @@ run_one_case() {
     return 0
   fi
 
-  if "${cmd[@]}" 2>&1 | tee -a "$log_file"; then
+  log "Run timeout: ${RUN_TIMEOUT}s"
+
+  if timeout --preserve-status "${RUN_TIMEOUT}s" "${cmd[@]}" 2>&1 | tee -a "$log_file"; then
     log "Case $case_no completed successfully."
     return 0
   fi
 
-  local status=$?
+  local status="${PIPESTATUS[0]:-1}"
   log "Case $case_no failed with exit code $status."
   return 0
 }
@@ -235,6 +278,7 @@ for entry in "${selected_paths[@]}"; do
           case_no=$((case_no + 1))
           run_one_case "$vlan" "$channel" "$source_ip" "$target_ip" "$protocol" "$packet_size" "$bandwidth" "$repetition" "$case_no"
           if [ "$DRY_RUN" = false ] && [ "$case_no" -lt "$total_cases" ]; then
+            log "Pausing $PAUSE seconds before the next case..."
             sleep "$PAUSE"
           fi
         done

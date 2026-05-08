@@ -109,7 +109,7 @@ Use `--source-ip` when the client host has more than one test IP and you want to
 ```bash
 network_monitor2 --server [--bind-ip <local_ip>] [--port <port>] [--interface <iface>]
 network_monitor2 <target_ip> [--source-ip <local_ip>] [--port <port>] [--duration <seconds>] [--udp|--tcp] [--bandwidth <rate>] [--interface <iface>]
-network_monitor2 --export-excel <output.xlsx>
+network_monitor2 --export-excel <output.xlsx> [--start <timestamp>] [--end <timestamp>]
 ```
 
 Options:
@@ -125,6 +125,8 @@ Options:
 - `--bandwidth <rate>`: UDP bandwidth, default `100M`
 - `--packet-size <size>`: client packet/buffer size
 - `--export-excel <path>`: export local DB data to an Excel workbook
+- `--start <timestamp>`: inclusive lower timestamp bound for export
+- `--end <timestamp>`: inclusive upper timestamp bound for export
 - `-h, --help`: show help
 
 Defaults:
@@ -140,6 +142,12 @@ Export the locally collected data to a single Excel workbook:
 
 ```bash
 network_monitor2 --export-excel results.xlsx
+```
+
+To export only a specific time window:
+
+```bash
+network_monitor2 --export-excel results_window.xlsx --start "2026-05-07 10:00:00" --end "2026-05-07 12:00:00"
 ```
 
 The workbook contains these sheets:
