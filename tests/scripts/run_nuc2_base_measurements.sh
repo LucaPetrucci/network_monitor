@@ -18,6 +18,8 @@ PAUSE=20
 REPETITIONS=1
 DRY_RUN=false
 LOG_DIR="$REPO_ROOT/tests/logs"
+EXPORT_DIR="$REPO_ROOT/export"
+AUTO_EXPORT=true
 RUN_TIMEOUT=0
 
 # Edit these lists directly when you want to narrow the campaign.
@@ -36,6 +38,11 @@ TEST_PATHS="28|5|10.10.28.11|10.10.28.10,29|6|10.10.29.11|10.10.29.10"
 
 log_file=""
 cleanup_in_progress=false
+campaign_start_ts=""
+campaign_end_ts=""
+campaign_start_file_ts=""
+campaign_end_file_ts=""
+case_report_lines=()
 
 kill_descendants() {
   local parent_pid="$1"
@@ -162,6 +169,9 @@ log_file="$LOG_DIR/nuc2_to_nuc1_base_measurements_$(date +%Y%m%d_%H%M%S).log"
 
 log "Starting NUC2 -> NUC1 base-measurement campaign"
 log "Log file: $log_file"
+campaign_start_ts="$(date '+%F %T')"
+campaign_start_file_ts="$(date +%Y%m%d_%H%M%S)"
+log "Campaign start: $campaign_start_ts"
 log "Command: $NETWORK_MONITOR_CMD"
 log "Duration: $DURATION"
 log "Pause: $PAUSE"
@@ -226,6 +236,7 @@ run_one_case() {
   local bandwidth="$7"
   local repetition="$8"
   local case_no="$9"
+  local case_started_ts
   local -a cmd=(
     "$NETWORK_MONITOR_CMD"
     "$target_ip"
@@ -234,6 +245,9 @@ run_one_case() {
     --duration "$DURATION"
     --packet-size "$packet_size"
   )
+
+  case_started_ts="$(date '+%F %T')"
+  case_report_lines+=("Case $case_no started at $case_started_ts | vlan=$vlan channel=$channel protocol=$protocol packet_size=$packet_size bandwidth=$bandwidth repetition=$repetition/$REPETITIONS src=$source_ip dst=$target_ip")
 
   if [ "$protocol" = "udp" ]; then
     cmd+=(--udp --bandwidth "$bandwidth")
@@ -247,6 +261,7 @@ run_one_case() {
   fi
 
   log "Case $case_no/$total_cases vlan=$vlan channel=$channel protocol=$protocol packet_size=$packet_size bandwidth=${bandwidth_note} repetition=$repetition/$REPETITIONS src=$source_ip dst=$target_ip"
+  log "Case $case_no start time: $case_started_ts"
   log "Command: $(format_command "${cmd[@]}")"
 
   if [ "$DRY_RUN" = true ]; then
@@ -286,5 +301,48 @@ for entry in "${selected_paths[@]}"; do
     done
   done
 done
+
+campaign_end_ts="$(date '+%F %T')"
+campaign_end_file_ts="$(date +%Y%m%d_%H%M%S)"
+log "Campaign end: $campaign_end_ts"
+
+if [ "$DRY_RUN" = false ] && [ "$AUTO_EXPORT" = true ]; then
+  mkdir -p "$EXPORT_DIR"
+  export_file="$EXPORT_DIR/nuc2_to_nuc1_${campaign_start_file_ts}_to_${campaign_end_file_ts}.xlsx"
+  report_file="${export_file%.xlsx}.txt"
+  log "Exporting campaign window to $export_file"
+  if "$NETWORK_MONITOR_CMD" --export-excel "$export_file" --start "$campaign_start_ts" --end "$campaign_end_ts" 2>&1 | tee -a "$log_file"; then
+    log "Export completed successfully."
+  else
+    export_status="${PIPESTATUS[0]:-1}"
+    log "Export failed with exit code $export_status."
+  fi
+
+  start_epoch="$(date -d "$campaign_start_ts" +%s)"
+  end_epoch="$(date -d "$campaign_end_ts" +%s)"
+  total_seconds=$((end_epoch - start_epoch))
+  if [ "$total_seconds" -lt 0 ]; then
+    total_seconds=0
+  fi
+  total_hours=$((total_seconds / 3600))
+  total_minutes=$(((total_seconds % 3600) / 60))
+  total_secs=$((total_seconds % 60))
+
+  {
+    echo "Campaign report"
+    echo "Generated at: $(date '+%F %T')"
+    echo "Campaign start: $campaign_start_ts"
+    echo "Campaign end: $campaign_end_ts"
+    printf 'Total duration: %02dh %02dm %02ds (%ss)\n' "$total_hours" "$total_minutes" "$total_secs" "$total_seconds"
+    echo
+    echo "Case start times:"
+    if [ "${#case_report_lines[@]}" -gt 0 ]; then
+      printf '%s\n' "${case_report_lines[@]}"
+    else
+      echo "No cases recorded."
+    fi
+  } > "$report_file"
+  log "Wrote campaign report to $report_file"
+fi
 
 log "Campaign completed. Successful or failed runs were logged in $log_file."

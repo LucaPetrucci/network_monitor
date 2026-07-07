@@ -120,6 +120,11 @@ You can also export only a time range:
 network_monitor2 --export-excel results_window.xlsx --start "2026-05-07 10:00:00" --end "2026-05-07 12:00:00"
 ```
 
+To include `Data Rate Remote`, `Jitter Remote`, and `Lost Packets Remote`, fill the optional `REMOTE_DB_*` entries in `network_monitor/setup.conf` before exporting. In this setup the remote rows are fetched directly from the DB exposed on NUC1 at `10.10.27.10`.
+
+The automated Cedex campaign script now exports the whole campaign window at the end of the run into `export/`, using a filename that includes the campaign start and end timestamps.
+It also writes a matching `.txt` summary with the total duration and the start time of each case.
+
 The workbook includes:
 
 - `iperf_results`

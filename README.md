@@ -150,6 +150,11 @@ To export only a specific time window:
 network_monitor2 --export-excel results_window.xlsx --start "2026-05-07 10:00:00" --end "2026-05-07 12:00:00"
 ```
 
+If you also want the remote `iperf` values side by side, fill the optional `REMOTE_DB_*` entries in `network_monitor/setup.conf` before exporting. The workbook will then add `Data Rate Remote`, `Jitter Remote`, and `Lost Packets Remote`. On this setup the remote values are fetched directly from the DB exposed on NUC1 at `10.10.27.10`.
+
+The automated NUC2 -> NUC1 campaign script exports the full campaign window at the end of the run into `export/`, and the workbook name includes the start and end timestamps.
+It also writes a matching `.txt` report with the campaign duration and the start time of every case.
+
 The workbook contains these sheets:
 
 - `iperf_results`

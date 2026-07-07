@@ -62,6 +62,7 @@ htmlcov/
 # Bash/shell/runtime
 *.log
 logs/
+export/
 *.pid
 *.pid.lock
 *.seed

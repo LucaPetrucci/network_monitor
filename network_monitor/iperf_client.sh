@@ -184,23 +184,40 @@ insert_sample() {
   local jitter="${3:-0}"
   local loss="${4:-0}"
   local sample_packet_size="${5:-}"
+  local sample_protocol="${6:-$protocol}"
+  local sample_metadata="${7:-$metadata}"
   local -a mysql_cmd=()
   local escaped_command
   local sql_packet_size="NULL"
 
   make_mysql_cmd mysql_cmd
-  escaped_command=$(escape_sql "$metadata")
+  escaped_command=$(escape_sql "$sample_metadata")
 
   if [ -n "$sample_packet_size" ]; then
     sql_packet_size="$sample_packet_size"
   fi
 
   if [ "$extended_columns_supported" = "yes" ]; then
-    "${mysql_cmd[@]}" -e "INSERT INTO \`$IPERF_TABLE\` (timestamp, bitrate, jitter, lost_percentage, executed_command, protocol, packet_size) VALUES ('$timestamp', $bitrate, $jitter, $loss, '$escaped_command', '$protocol', $sql_packet_size);" \
+    "${mysql_cmd[@]}" -e "INSERT INTO \`$IPERF_TABLE\` (timestamp, bitrate, jitter, lost_percentage, executed_command, protocol, packet_size) VALUES ('$timestamp', $bitrate, $jitter, $loss, '$escaped_command', '$sample_protocol', $sql_packet_size);" \
       2>/dev/null || echo "Warning: failed to insert iperf sample at $timestamp"
   else
     "${mysql_cmd[@]}" -e "INSERT INTO \`$IPERF_TABLE\` (timestamp, bitrate, jitter, lost_percentage) VALUES ('$timestamp', $bitrate, $jitter, $loss);" \
       2>/dev/null || echo "Warning: failed to insert iperf sample at $timestamp"
+  fi
+}
+
+metadata_with_protocol() {
+  local sample_protocol="$1"
+
+  if [ -z "$metadata" ]; then
+    printf 'protocol=%s' "$sample_protocol"
+    return
+  fi
+
+  if [[ "$metadata" =~ (^|[[:space:]])protocol= ]]; then
+    printf '%s' "$metadata" | sed -E "s/(^|[[:space:]])protocol=[^[:space:]]+/\1protocol=$sample_protocol/"
+  else
+    printf '%s protocol=%s' "$metadata" "$sample_protocol"
   fi
 }
 
@@ -227,7 +244,7 @@ if [ "$mode" = "server" ]; then
   echo "Starting iperf3 server on port $port"
   stdbuf -oL -eL "${server_args[@]}" 2>&1 | while IFS= read -r line; do
     echo "$line"
-    if [ "$protocol" = "udp" ] && [[ $line =~ $udp_regex ]]; then
+    if [[ $line =~ $udp_regex ]]; then
       elapsed_start="${BASH_REMATCH[1]}"
       elapsed_end="${BASH_REMATCH[2]}"
       bitrate_raw="${BASH_REMATCH[3]}"
@@ -246,7 +263,7 @@ if [ "$mode" = "server" ]; then
       bitrate=$(normalize_bitrate "$bitrate_raw" "$unit")
       measurement_time=$(awk -v base="$current_stream_base_time" -v offset="$elapsed_end" 'BEGIN {printf "%.3f", base + offset}')
       timestamp=$(date -d "@$measurement_time" +"%Y-%m-%d %H:%M:%S.%3N")
-      insert_sample "$timestamp" "$bitrate" "$jitter" "$loss"
+      insert_sample "$timestamp" "$bitrate" "$jitter" "$loss" "" "udp" "$(metadata_with_protocol udp)"
     elif [[ $line =~ $throughput_regex ]]; then
       elapsed_start="${BASH_REMATCH[1]}"
       elapsed_end="${BASH_REMATCH[2]}"
@@ -264,7 +281,7 @@ if [ "$mode" = "server" ]; then
       bitrate=$(normalize_bitrate "$bitrate_raw" "$unit")
       measurement_time=$(awk -v base="$current_stream_base_time" -v offset="$elapsed_end" 'BEGIN {printf "%.3f", base + offset}')
       timestamp=$(date -d "@$measurement_time" +"%Y-%m-%d %H:%M:%S.%3N")
-      insert_sample "$timestamp" "$bitrate" 0 0
+      insert_sample "$timestamp" "$bitrate" 0 0 "" "tcp" "$(metadata_with_protocol tcp)"
     fi
   done
   exit 0
@@ -321,7 +338,7 @@ stdbuf -oL -eL "${iperf_args[@]}" | while IFS= read -r line; do
     bitrate=$(normalize_bitrate "$bitrate_raw" "$unit")
     measurement_time=$(awk -v base="$start_time" -v offset="$elapsed_end" 'BEGIN {printf "%.3f", base + offset}')
     timestamp=$(date -d "@$measurement_time" +"%Y-%m-%d %H:%M:%S.%3N")
-    insert_sample "$timestamp" "$bitrate" "$jitter" "$loss" "$packet_size"
+    insert_sample "$timestamp" "$bitrate" "$jitter" "$loss" "$packet_size" "$protocol" "$(metadata_with_protocol "$protocol")"
   elif [[ $line =~ $throughput_regex ]]; then
     elapsed_start="${BASH_REMATCH[1]}"
     elapsed_end="${BASH_REMATCH[2]}"
@@ -335,6 +352,6 @@ stdbuf -oL -eL "${iperf_args[@]}" | while IFS= read -r line; do
     bitrate=$(normalize_bitrate "$bitrate_raw" "$unit")
     measurement_time=$(awk -v base="$start_time" -v offset="$elapsed_end" 'BEGIN {printf "%.3f", base + offset}')
     timestamp=$(date -d "@$measurement_time" +"%Y-%m-%d %H:%M:%S.%3N")
-    insert_sample "$timestamp" "$bitrate" 0 0 "$packet_size"
+    insert_sample "$timestamp" "$bitrate" 0 0 "$packet_size" "$protocol" "$(metadata_with_protocol "$protocol")"
   fi
 done
