@@ -78,3 +78,6 @@ export/
 Thumbs.db
 .vscode/
 .idea/
+tests/scripts/old_tests_scripts/
+results*
+setup*
