@@ -81,3 +81,6 @@ Thumbs.db
 tests/scripts/old_tests_scripts/
 results*
 setup*
+
+docs/kpi_campaign
+network_monitor/setup.conf
