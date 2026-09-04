@@ -1,20 +1,19 @@
-# Guida rapida a network_monitor2
+# Guida operativa a network_monitor2
 
-Questa guida spiega come avviare `network_monitor2` su due NUC, eseguire test TCP e UDP su una VLAN specifica e consultare i risultati. È una versione operativa e semplificata del README del progetto.
+Questa guida descrive la procedura minima per scegliere un percorso ed eseguire un test tra NUC2 e NUC1. Per installazione, database e opzioni avanzate consultare il `README.md`.
 
-## 1. Che cosa fa il tool
+## 1. Prima di iniziare
 
-`network_monitor2` combina tre tipi di misura:
+> **Sicurezza:** non modificare o interrompere mai la connessione di management su VLAN27.
 
-- ping, per latenza e raggiungibilità;
-- iperf3, per throughput TCP/UDP, jitter e packet loss;
-- monitoraggio delle interruzioni durante il test.
+- NUC2 management: `10.10.27.11`, interfaccia `enp114s0`.
+- NUC1 management: `10.10.27.10`, interfaccia `enp114s0`.
+- Gateway di default: `10.10.27.1` su `enp114s0`.
+- Collegarsi a NUC1 tramite `ssh 10.10.27.10`.
 
-Ogni NUC salva i propri risultati nel database MariaDB locale. Il tool non scrive direttamente nel database dell'altro NUC.
+Non modificare VLAN27, gli indirizzi di management o la route di default.
 
-## 2. Prerequisiti
-
-Il tool deve essere installato su entrambi i NUC. Verificare con:
+Verificare il tool su entrambi i NUC:
 
 ```bash
 command -v network_monitor2
@@ -22,287 +21,217 @@ network_monitor2 --help
 command -v iperf3
 ```
 
-Se non è ancora installato:
+## 2. Scegliere il percorso
+
+- **CEIT:** NUC2 `10.10.42.11` → NUC1 `10.10.22.10`.
+- **INDRA:** NUC2 `10.10.42.11` → NUC1 `10.10.22.10`.
+- **Bypass TN0:** NUC2 `10.10.28.11` → NUC1 `10.10.28.10`.
+- **Bypass TN1:** NUC2 `10.10.29.11` → NUC1 `10.10.29.10`.
+
+CEIT e INDRA usano gli stessi indirizzi terminali, ma route e gateway diversi. I bypass sono direttamente connessi.
+
+### CEIT
+
+Da NUC2, selezionare CEIT su entrambi i NUC:
 
 ```bash
-cd /home/comsa/network_monitor_v2
-sudo bash ./setup_v2.sh
+sudo /home/tuser/scripts/test_ceit
+ssh -t 10.10.27.10 'sudo /home/tuser/scripts/test_ceit'
 ```
-
-La configurazione del database utilizzata dal runtime si trova in:
-
-```text
-/opt/network_monitor2/setup.conf
-```
-
-## 3. Regola fondamentale: server e client
-
-Per ogni test servono due terminali:
-
-1. sul NUC che riceve il traffico si avvia `network_monitor2 --server`;
-2. sull'altro NUC si avvia il client indicando l'indirizzo del server.
-
-Il server deve essere avviato prima del client. La porta e gli indirizzi di binding devono corrispondere.
-
-Poiché i NUC hanno più VLAN, utilizzare sempre:
-
-- `--bind-ip` sul server;
-- `--source-ip` sul client.
-
-Questo evita che Linux scelga un'interfaccia diversa da quella da misurare.
-
-## 4. Verifiche prima del test
-
-Controllare indirizzi e interfacce:
 
 ```bash
-ip -br addr
-ip route
+# NUC2: deve mostrare via 10.10.42.41
+ip route get 10.10.22.10 from 10.10.42.11
+
+# NUC1: deve mostrare via 10.10.22.40
+ssh 10.10.27.10 \
+  'ip route get 10.10.42.11 from 10.10.22.10'
 ```
 
-Verificare la raggiungibilità usando l'indirizzo sorgente corretto:
+### INDRA
+
+Da NUC2, selezionare INDRA su entrambi i NUC:
 
 ```bash
-ping -I <IP_LOCALE_TEST> -c 5 <IP_REMOTO_TEST>
+sudo /home/tuser/scripts/test_indra
+ssh -t 10.10.27.10 'sudo /home/tuser/scripts/test_indra'
 ```
 
-Esempio TN0 da NUC2:
+```bash
+# NUC2: deve mostrare via 10.10.42.31
+ip route get 10.10.22.10 from 10.10.42.11
+
+# NUC1: deve mostrare via 10.10.22.30
+ssh 10.10.27.10 \
+  'ip route get 10.10.42.11 from 10.10.22.10'
+```
+
+### Bypass TN0 o TN1
+
+Non esiste uno script `test_bypass`. Prima del bypass eliminare le sole route di test CEIT/INDRA. Questi comandi non devono modificare VLAN27 o la route di default:
 
 ```bash
+# NUC2
+sudo ip route del 10.10.22.0/24 via 10.10.42.41 2>/dev/null || true
+sudo ip route del 10.10.22.0/24 via 10.10.42.31 2>/dev/null || true
+
+# NUC1, via management
+ssh -t 10.10.27.10 \
+  'sudo ip route del 10.10.42.0/24 via 10.10.22.40 2>/dev/null || true; \
+   sudo ip route del 10.10.42.0/24 via 10.10.22.30 2>/dev/null || true'
+```
+
+Controllare il percorso scelto:
+
+```bash
+# TN0
+ip route get 10.10.28.10 from 10.10.28.11
+
+# TN1
+ip route get 10.10.29.10 from 10.10.29.11
+```
+
+Il risultato deve indicare una route direttamente connessa, senza gateway. Per tornare a CEIT o INDRA, rieseguire il relativo script su entrambi i NUC.
+
+## 3. Verificare la raggiungibilità
+
+Da NUC2 eseguire il ping relativo al percorso scelto:
+
+```bash
+# CEIT o INDRA
+ping -I 10.10.42.11 -c 5 10.10.22.10
+
+# Bypass TN0
 ping -I 10.10.28.11 -c 5 10.10.28.10
+
+# Bypass TN1
+ping -I 10.10.29.11 -c 5 10.10.29.10
 ```
 
-Se il ping restituisce 100% packet loss, non avviare il test di throughput: controllare prima routing, VLAN, ARP e stato del collegamento.
+Se il ping restituisce `100% packet loss`, non eseguire il test di throughput. Controllare prima route, indirizzi, VLAN e ARP.
 
-## 5. Primo test TCP: NUC2 verso NUC1
+## 4. Eseguire un test TCP
 
-### Terminale 1 — NUC1 server
+Servono due terminali. Avviare prima il server su NUC1 e poi il client su NUC2. Questo esempio usa TN0.
 
-Collegarsi a NUC1 attraverso la rete di management:
+### Terminale 1 — server su NUC1
 
 ```bash
 ssh 10.10.27.10
-```
-
-Avviare il server vincolato all'indirizzo TN0 di NUC1:
-
-```bash
 network_monitor2 --server \
   --bind-ip 10.10.28.10 \
-  --interface enp114s0.28 \
   --port 5050
 ```
 
-Lasciare questo terminale aperto.
+Lasciare il server attivo.
 
-### Terminale 2 — NUC2 client
-
-Da NUC2 eseguire un test TCP di 30 secondi:
+### Terminale 2 — client su NUC2
 
 ```bash
 network_monitor2 10.10.28.10 \
   --source-ip 10.10.28.11 \
-  --interface enp114s0.28 \
   --port 5050 \
   --duration 30 \
   --tcp
 ```
 
-Durante il test vengono mostrati a terminale gli intervalli iperf3 e il riepilogo finale. Ping, throughput e interruzioni vengono anche salvati nel database locale.
+`Monitoring run completed` indica che throughput, ping e monitoraggio delle interruzioni sono terminati. Il client salva i risultati nel database locale di NUC2; il server salva localmente i propri campioni iperf3.
 
-Per fermare il server al termine dei test premere `Ctrl+C` nel terminale di NUC1.
+Al termine fermare il server con `Ctrl+C`.
+
+## 5. Adattare il comando al percorso
+
+Cambiano solo gli indirizzi:
+
+- **CEIT o INDRA:** server `10.10.22.10`, client/source `10.10.42.11`.
+- **TN0:** server `10.10.28.10`, client/source `10.10.28.11`.
+- **TN1:** server `10.10.29.10`, client/source `10.10.29.11`.
+
+Usare sempre `--bind-ip` sul server e `--source-ip` sul client. `--interface` è facoltativo e serve come indicazione aggiuntiva o metadato.
 
 ## 6. Test UDP
 
-Avviare il server su NUC1 come nel test precedente, poi eseguire da NUC2:
+Lasciare attivo lo stesso server, usare `--udp` e indicare il traffico da generare:
 
 ```bash
 network_monitor2 10.10.28.10 \
   --source-ip 10.10.28.11 \
-  --interface enp114s0.28 \
   --port 5050 \
   --duration 30 \
   --udp \
   --bandwidth 400M
 ```
 
-Modificare `--bandwidth` per provare altri carichi, ad esempio `100M`, `500M` o `600M`.
+Per UDP valutare insieme bitrate ricevuto, jitter e percentuale di pacchetti persi. Un bitrate elevato con molte perdite non indica un collegamento stabile.
 
-Nel test UDP interpretare insieme:
+## 7. Test da NUC1 verso NUC2
 
-- bitrate ricevuto;
-- jitter;
-- percentuale di pacchetti persi.
+Invertire server e client. Esempio TN0:
 
-Un bitrate elevato con packet loss elevato non indica un collegamento stabile.
-
-## 7. Test nella direzione opposta
-
-Per misurare NUC1 verso NUC2, invertire i ruoli.
-
-### NUC2 server
+Su NUC2:
 
 ```bash
-network_monitor2 --server \
-  --bind-ip 10.10.28.11 \
-  --interface enp114s0.28 \
-  --port 5050
+network_monitor2 --server --bind-ip 10.10.28.11 --port 5050
 ```
 
-### NUC1 client
+Su NUC1:
 
 ```bash
 network_monitor2 10.10.28.11 \
   --source-ip 10.10.28.10 \
-  --interface enp114s0.28 \
-  --port 5050 \
-  --duration 30 \
-  --tcp
+  --port 5050 --duration 30 --tcp
 ```
 
-## 8. Utilizzare TN1
+## 8. Consultare i risultati
 
-Per TN1 sostituire indirizzi e interfacce TN0 con quelli VLAN29:
+### Terminale
 
-```text
-NUC2: 10.10.29.11 — enp114s0.29
-NUC1: 10.10.29.10 — enp114s0.29
-```
+Per TCP controllare throughput e ritrasmissioni (`Retr`). Per UDP controllare bitrate ricevuto, jitter e packet loss.
 
-Esempio server NUC1:
+### Excel
 
-```bash
-network_monitor2 --server \
-  --bind-ip 10.10.29.10 \
-  --interface enp114s0.29 \
-  --port 5050
-```
-
-Esempio client NUC2:
-
-```bash
-network_monitor2 10.10.29.10 \
-  --source-ip 10.10.29.11 \
-  --interface enp114s0.29 \
-  --port 5050 \
-  --duration 30 \
-  --tcp
-```
-
-## 9. Percorso attraverso i gateway CEIT
-
-Quando il traffico deve attraversare CEIT, gli indirizzi di test sono:
-
-```text
-NUC2: 10.10.42.11 — enp114s0.42
-NUC1: 10.10.22.10 — enp114s0.22
-```
-
-Dopo avere applicato le route CEIT previste, verificare il percorso:
-
-```bash
-ip route get 10.10.22.10 from 10.10.42.11
-```
-
-Il risultato su NUC2 deve indicare il gateway `10.10.42.41`. Sul NUC1 il percorso di ritorno deve utilizzare `10.10.22.40`.
-
-Server su NUC1:
-
-```bash
-network_monitor2 --server \
-  --bind-ip 10.10.22.10 \
-  --interface enp114s0.22 \
-  --port 5050
-```
-
-Client su NUC2:
-
-```bash
-network_monitor2 10.10.22.10 \
-  --source-ip 10.10.42.11 \
-  --interface enp114s0.42 \
-  --port 5050 \
-  --duration 30 \
-  --tcp
-```
-
-La radio selezionata internamente dai gateway CEIT non può essere controllata o identificata dai NUC.
-
-## 10. Come leggere i risultati a terminale
-
-Per TCP, il riepilogo iperf3 mostra:
-
-- transfer: quantità di dati trasferita;
-- bitrate: throughput misurato;
-- retr: segmenti TCP ritrasmessi.
-
-Per UDP mostra:
-
-- bitrate ricevuto;
-- jitter;
-- pacchetti persi e percentuale di loss.
-
-Il tool stampa `Monitoring run completed` quando client, ping e monitoraggio delle interruzioni sono terminati correttamente.
-
-## 11. Esportare i risultati in Excel
-
-Per esportare tutti i dati locali:
+Ogni NUC esporta il proprio database locale:
 
 ```bash
 network_monitor2 --export-excel results.xlsx
 ```
 
-Per limitare l'esportazione a un intervallo temporale:
+Per limitare l'intervallo:
 
 ```bash
 network_monitor2 --export-excel results.xlsx \
-  --start "2026-07-23 09:00:00" \
-  --end "2026-07-23 12:00:00"
+  --start "2026-09-03 09:00:00" \
+  --end "2026-09-03 12:00:00"
 ```
 
-Il file Excel contiene normalmente:
+### Grafana
 
-- `iperf_results`;
-- `ping_results`;
-- `interruptions`;
-- `commands`.
+Aprire `http://<IP_GRAFANA>:3000` e scegliere il dashboard locale o bidirezionale. Controllare l'intervallo temporale se non compaiono dati.
 
-Eseguire l'export sul NUC del quale si vogliono estrarre i dati locali.
+## 9. Campagna KPI automatica
 
-## 12. Visualizzare i risultati in Grafana
-
-Se Grafana è già configurato, aprire dal browser:
-
-```text
-http://<IP_DEL_SERVER_GRAFANA>:3000
-```
-
-Selezionare uno dei dashboard:
-
-- Network Monitoring Dashboard, per i dati locali;
-- Network Monitoring Dashboard (Bidirectional), per confrontare dati locali e remoti.
-
-I pannelli principali mostrano throughput, jitter, packet loss, latenza, interruzioni e metadati del comando.
-
-Se si utilizza lo stack Docker incluso nel repository:
+Da NUC2 eseguire prima l'anteprima:
 
 ```bash
 cd /home/comsa/network_monitor_v2
-cp .env.grafana.example .env.grafana
-docker compose -f docker-compose.grafana.yml up -d
+./run_kpi_tests.sh --dry-run
 ```
 
-Le credenziali e le connessioni ai database sono definite in `.env.grafana`.
+Poi avviare la campagna:
 
-## 13. Problemi comuni
+```bash
+./run_kpi_tests.sh
+```
 
-### Connection refused
+La campagna attuale prova CEIT, bypass TN0 e bypass TN1, genera report e log sotto `results/` e ripristina lo stato iniziale delle route dopo successo, errore o `Ctrl+C`. **INDRA non è ancora incluso nella campagna automatica.**
 
-Controllare che il server sia attivo, che client e server usino la stessa porta e che `--bind-ip` corrisponda all'indirizzo presente sul server.
+## 10. Problemi comuni
 
-### No route to host
+### `Connection refused`
 
-Controllare:
+Verificare che il server sia attivo e che server e client usino la stessa porta.
+
+### `No route to host` o ping senza risposta
 
 ```bash
 ip route get <DESTINAZIONE> from <SORGENTE>
@@ -310,67 +239,30 @@ ip neigh
 ping -I <SORGENTE> -c 5 <DESTINAZIONE>
 ```
 
-Un neighbor in stato `FAILED` indica generalmente un problema ARP, VLAN o Layer 2.
+Un neighbor `FAILED` indica normalmente un problema ARP, VLAN o Layer 2.
+
+### Porta già occupata
+
+Scegliere un'altra porta, per esempio `5051`, e usarla sia sul server sia sul client.
 
 ### Nessun dato in Grafana
 
-Verificare l'intervallo temporale del dashboard, la configurazione MariaDB in `/opt/network_monitor2/setup.conf` e che il test abbia mostrato `Monitoring run completed`.
+Controllare intervallo temporale, `/opt/network_monitor2/setup.conf` e che il test abbia mostrato `Monitoring run completed`.
 
-### Porta già in uso
-
-Usare un'altra porta sia sul server sia sul client:
+## Riferimento rapido
 
 ```bash
-network_monitor2 --server --bind-ip <IP_SERVER> --port 5051
-network_monitor2 <IP_SERVER> --source-ip <IP_CLIENT> --port 5051 --tcp
-```
-
-## 14. Campagna KPI automatica
-
-Per eseguire automaticamente la matrice CEIT, bypass TN0 e bypass TN1:
-
-```bash
-cd /home/comsa/network_monitor_v2
-./run_kpi_tests.sh
-```
-
-Per controllare prima le operazioni senza modificare la rete:
-
-```bash
-./run_kpi_tests.sh --dry-run
-```
-
-La campagna genera una nuova cartella sotto `results/` con report Markdown/PDF, CSV, output completi dei test e log di routing.
-
-## 15. Riferimento rapido
-
-Mostrare l'help:
-
-```bash
-network_monitor2 --help
-```
-
-TCP:
-
-```bash
-network_monitor2 <IP_SERVER> --source-ip <IP_CLIENT> --duration 30 --tcp
-```
-
-UDP:
-
-```bash
-network_monitor2 <IP_SERVER> --source-ip <IP_CLIENT> \
-  --duration 30 --udp --bandwidth 100M
-```
-
-Server:
-
-```bash
+# Server
 network_monitor2 --server --bind-ip <IP_LOCALE> --port 5050
-```
 
-Export:
+# Client TCP
+network_monitor2 <IP_SERVER> --source-ip <IP_CLIENT> \
+  --port 5050 --duration 30 --tcp
 
-```bash
+# Client UDP
+network_monitor2 <IP_SERVER> --source-ip <IP_CLIENT> \
+  --port 5050 --duration 30 --udp --bandwidth 100M
+
+# Export locale
 network_monitor2 --export-excel results.xlsx
 ```

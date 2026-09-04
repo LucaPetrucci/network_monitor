@@ -20,6 +20,8 @@ duration=30
 protocol="udp"
 bandwidth="100M"
 packet_size=""
+flows=1
+reverse=false
 target_ip=""
 source_ip=""
 bind_ip=""
@@ -69,7 +71,7 @@ show_help() {
   cat <<'EOF'
 Usage:
   network_monitor2 --server [--bind-ip <local_ip>] [--port <port>] [--interface <iface>]
-  network_monitor2 <target_ip> [--source-ip <local_ip>] [--port <port>] [--duration <seconds>] [--udp|--tcp] [--bandwidth <rate>] [--packet-size <size>] [--interface <iface>]
+  network_monitor2 <target_ip> [--source-ip <local_ip>] [--udp|--tcp] [--reverse] [--flows <count>] [--packet-size <bytes>] [options]
   network_monitor2 --export-excel <output.xlsx> [--start <timestamp>] [--end <timestamp>]
 
 Description:
@@ -86,8 +88,10 @@ Options:
   --duration <seconds>    iperf3 client duration in seconds (default: 30).
   --udp                   Use UDP for iperf3 client (default).
   --tcp                   Use TCP for iperf3 client.
-  --bandwidth <rate>      UDP bandwidth for iperf3 client (default: 100M).
-  --packet-size <size>    iperf3 client packet/buffer size.
+  --bandwidth <rate>      Total UDP bandwidth across all flows (default: 100M).
+  --packet-size <bytes>   UDP datagram or TCP buffer length.
+  --flows <count>         Number of parallel iperf3 flows (default: 1, max: 32).
+  --reverse               Send test traffic from server to client.
   --export-excel <path>   Export local DB data to an Excel workbook.
   --start <timestamp>     Inclusive lower timestamp bound for export.
   --end <timestamp>       Inclusive upper timestamp bound for export.
@@ -95,7 +99,7 @@ Options:
 
 Examples:
   network_monitor2 --server --bind-ip 10.10.28.10 --port 5050
-  network_monitor2 10.10.28.11 --source-ip 10.10.28.10 --duration 60
+  network_monitor2 10.10.28.11 --source-ip 10.10.28.10 --tcp --reverse --flows 4
   network_monitor2 --export-excel results.xlsx --start "2026-05-07 10:00:00" --end "2026-05-07 12:00:00"
 EOF
 }
@@ -158,6 +162,15 @@ while [ $# -gt 0 ]; do
       packet_size="$2"
       shift 2
       ;;
+    --flows)
+      require_value "$1" "${2:-}"
+      flows="$2"
+      shift 2
+      ;;
+    --reverse)
+      reverse=true
+      shift
+      ;;
     --export-excel)
       require_value "$1" "${2:-}"
       export_excel="$2"
@@ -196,7 +209,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -n "$export_excel" ]; then
-  if [ "$server_mode" = true ] || [ -n "$target_ip" ] || [ -n "$source_ip" ] || [ -n "$bind_ip" ] || [ -n "$interface" ] || [ -n "$packet_size" ]; then
+  if [ "$server_mode" = true ] || [ -n "$target_ip" ] || [ -n "$source_ip" ] || [ -n "$bind_ip" ] || [ -n "$interface" ] || [ -n "$packet_size" ] || [ "$flows" != 1 ] || [ "$reverse" = true ]; then
     echo "Error: --export-excel cannot be combined with client/server run options."
     exit 1
   fi
@@ -224,8 +237,13 @@ if [ "$protocol" = "tcp" ] && [ -n "$bandwidth" ]; then
   bandwidth=""
 fi
 
-if ! [[ -z "$packet_size" || "$packet_size" =~ ^[0-9]+$ ]]; then
+if ! [[ -z "$packet_size" || "$packet_size" =~ ^[1-9][0-9]*$ ]]; then
   echo "Error: --packet-size must be a positive integer."
+  exit 1
+fi
+
+if ! [[ "$flows" =~ ^[1-9][0-9]*$ ]] || [ "$flows" -gt 32 ]; then
+  echo "Error: --flows must be an integer between 1 and 32."
   exit 1
 fi
 
@@ -248,6 +266,12 @@ make_metadata_string() {
   fi
   if [ "$role" = "client" ]; then
     metadata="$metadata duration=${duration}s"
+    metadata="$metadata direction=$([ "$reverse" = true ] && printf reverse || printf forward) flows=$flows"
+    if [ "$reverse" = true ]; then
+      metadata="$metadata traffic_source=$remote traffic_target=$local_value"
+    else
+      metadata="$metadata traffic_source=$local_value traffic_target=$remote"
+    fi
     if [ "$protocol" = "udp" ] && [ -n "$bandwidth" ]; then
       metadata="$metadata bandwidth=$bandwidth"
     fi
@@ -260,7 +284,7 @@ make_metadata_string() {
 }
 
 if [ "$server_mode" = true ]; then
-  if [ -n "$target_ip" ] || [ -n "$source_ip" ] || [ -n "$packet_size" ]; then
+  if [ -n "$target_ip" ] || [ -n "$source_ip" ] || [ -n "$packet_size" ] || [ "$flows" != 1 ] || [ "$reverse" = true ]; then
     echo "Error: client-only arguments cannot be used with --server."
     exit 1
   fi
@@ -318,6 +342,11 @@ fi
 
 if [ -n "$packet_size" ]; then
   iperf_args+=(--packet-size "$packet_size")
+fi
+
+iperf_args+=(--flows "$flows")
+if [ "$reverse" = true ]; then
+  iperf_args+=(--reverse)
 fi
 
 if [ -n "$interface" ]; then

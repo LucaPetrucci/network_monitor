@@ -10,6 +10,11 @@ The runtime has two modes:
 
 Each host writes only to its own local database. Grafana can read the local database directly, and the bidirectional dashboard can compare local and remote data through separate datasources.
 
+For the shortest path from route selection to a working test, use the operational guide:
+
+- [English guide](docs/network_monitor_guide/NETWORK_MONITOR_GUIDE.md)
+- [Guida italiana](docs/network_monitor_guide/GUIDA_NETWORK_MONITOR.md)
+
 ## Features
 
 - Real-time throughput collection with unbuffered `iperf3` output

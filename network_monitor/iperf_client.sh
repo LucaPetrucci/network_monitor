@@ -22,6 +22,8 @@ duration=30
 protocol="udp"
 bandwidth=""
 packet_size=""
+flows=1
+reverse=false
 metadata=""
 
 require_value() {
@@ -87,6 +89,15 @@ while [ $# -gt 0 ]; do
       require_value "$1" "${2:-}"
       packet_size="$2"
       shift 2
+      ;;
+    --flows)
+      require_value "$1" "${2:-}"
+      flows="$2"
+      shift 2
+      ;;
+    --reverse)
+      reverse=true
+      shift
       ;;
     --metadata)
       require_value "$1" "${2:-}"
@@ -225,6 +236,8 @@ detect_schema_capabilities
 
 throughput_regex='\[[[:space:]]*[0-9]+\][[:space:]]+([0-9.]+)-([0-9.]+)[[:space:]]+sec[[:space:]]+[0-9.]+[[:space:]]+[KMG]?Bytes[[:space:]]+([0-9.]+)[[:space:]]+([KMG]?)bits/sec'
 udp_regex='\[[[:space:]]*[0-9]+\][[:space:]]+([0-9.]+)-([0-9.]+)[[:space:]]+sec[[:space:]]+[0-9.]+[[:space:]]+[KMG]?Bytes[[:space:]]+([0-9.]+)[[:space:]]+([KMG]?)bits/sec[[:space:]]+([0-9.]+)[[:space:]]+ms[[:space:]]+([0-9]+)/([0-9]+)[[:space:]]+\(([0-9.]+)%\)'
+sum_throughput_regex='\[[[:space:]]*SUM\][[:space:]]+([0-9.]+)-([0-9.]+)[[:space:]]+sec[[:space:]]+[0-9.]+[[:space:]]+[KMG]?Bytes[[:space:]]+([0-9.]+)[[:space:]]+([KMG]?)bits/sec'
+sum_udp_regex='\[[[:space:]]*SUM\][[:space:]]+([0-9.]+)-([0-9.]+)[[:space:]]+sec[[:space:]]+[0-9.]+[[:space:]]+[KMG]?Bytes[[:space:]]+([0-9.]+)[[:space:]]+([KMG]?)bits/sec[[:space:]]+([0-9.]+)[[:space:]]+ms[[:space:]]+([0-9]+)/([0-9]+)[[:space:]]+\(([0-9.]+)%\)'
 
 if [ "$mode" = "server" ]; then
   server_args=(iperf3 -s -p "$port")
@@ -241,10 +254,73 @@ if [ "$mode" = "server" ]; then
   fi
 
   current_stream_base_time=""
+  pending_kind=""
+  pending_start=""
+  pending_end=""
+  pending_bitrate=""
+  pending_unit=""
+  pending_jitter="0"
+  pending_loss="0"
+
+  store_server_sample() {
+    local kind="$1"
+    local elapsed_start="$2"
+    local elapsed_end="$3"
+    local bitrate_raw="$4"
+    local unit="$5"
+    local jitter="${6:-0}"
+    local loss="${7:-0}"
+    local bitrate measurement_time timestamp
+
+    if ! should_store_interval "$elapsed_start" "$elapsed_end"; then
+      return
+    fi
+
+    bitrate=$(normalize_bitrate "$bitrate_raw" "$unit")
+    measurement_time=$(awk -v base="$current_stream_base_time" -v offset="$elapsed_end" 'BEGIN {printf "%.3f", base + offset}')
+    timestamp=$(date -d "@$measurement_time" +"%Y-%m-%d %H:%M:%S.%3N")
+    insert_sample "$timestamp" "$bitrate" "$jitter" "$loss" "" "$kind" "$(metadata_with_protocol "$kind")"
+  }
+
+  flush_pending_server_sample() {
+    if [ -z "$pending_kind" ]; then
+      return
+    fi
+    store_server_sample "$pending_kind" "$pending_start" "$pending_end" \
+      "$pending_bitrate" "$pending_unit" "$pending_jitter" "$pending_loss"
+    pending_kind=""
+  }
+
+  buffer_server_sample() {
+    local kind="$1"
+    local elapsed_start="$2"
+    local elapsed_end="$3"
+    local bitrate_raw="$4"
+    local unit="$5"
+    local jitter="${6:-0}"
+    local loss="${7:-0}"
+
+    if [ -n "$pending_kind" ] && { [ "$pending_start" != "$elapsed_start" ] || [ "$pending_end" != "$elapsed_end" ]; }; then
+      flush_pending_server_sample
+    fi
+
+    # Keep one numeric stream as a fallback. If a [SUM] line follows for the
+    # same interval, it replaces this pending value.
+    if [ -z "$pending_kind" ]; then
+      pending_kind="$kind"
+      pending_start="$elapsed_start"
+      pending_end="$elapsed_end"
+      pending_bitrate="$bitrate_raw"
+      pending_unit="$unit"
+      pending_jitter="$jitter"
+      pending_loss="$loss"
+    fi
+  }
+
   echo "Starting iperf3 server on port $port"
-  stdbuf -oL -eL "${server_args[@]}" 2>&1 | while IFS= read -r line; do
+  stdbuf -oL -eL "${server_args[@]}" 2>&1 | { while IFS= read -r line; do
     echo "$line"
-    if [[ $line =~ $udp_regex ]]; then
+    if [[ $line =~ $sum_udp_regex ]]; then
       elapsed_start="${BASH_REMATCH[1]}"
       elapsed_end="${BASH_REMATCH[2]}"
       bitrate_raw="${BASH_REMATCH[3]}"
@@ -255,35 +331,41 @@ if [ "$mode" = "server" ]; then
       if [ "$elapsed_start" = "0.00" ] || [ -z "$current_stream_base_time" ]; then
         current_stream_base_time=$(date +%s.%N)
       fi
-
-      if ! should_store_interval "$elapsed_start" "$elapsed_end"; then
-        continue
+      pending_kind=""
+      store_server_sample udp "$elapsed_start" "$elapsed_end" "$bitrate_raw" "$unit" "$jitter" "$loss"
+    elif [[ $line =~ $sum_throughput_regex ]]; then
+      elapsed_start="${BASH_REMATCH[1]}"
+      elapsed_end="${BASH_REMATCH[2]}"
+      bitrate_raw="${BASH_REMATCH[3]}"
+      unit="${BASH_REMATCH[4]}"
+      if [ "$elapsed_start" = "0.00" ] || [ -z "$current_stream_base_time" ]; then
+        current_stream_base_time=$(date +%s.%N)
       fi
-
-      bitrate=$(normalize_bitrate "$bitrate_raw" "$unit")
-      measurement_time=$(awk -v base="$current_stream_base_time" -v offset="$elapsed_end" 'BEGIN {printf "%.3f", base + offset}')
-      timestamp=$(date -d "@$measurement_time" +"%Y-%m-%d %H:%M:%S.%3N")
-      insert_sample "$timestamp" "$bitrate" "$jitter" "$loss" "" "udp" "$(metadata_with_protocol udp)"
+      pending_kind=""
+      store_server_sample tcp "$elapsed_start" "$elapsed_end" "$bitrate_raw" "$unit"
+    elif [[ $line =~ $udp_regex ]]; then
+      elapsed_start="${BASH_REMATCH[1]}"
+      elapsed_end="${BASH_REMATCH[2]}"
+      bitrate_raw="${BASH_REMATCH[3]}"
+      unit="${BASH_REMATCH[4]}"
+      jitter="${BASH_REMATCH[5]}"
+      loss="${BASH_REMATCH[8]}"
+      if [ "$elapsed_start" = "0.00" ] || [ -z "$current_stream_base_time" ]; then
+        current_stream_base_time=$(date +%s.%N)
+      fi
+      buffer_server_sample udp "$elapsed_start" "$elapsed_end" "$bitrate_raw" "$unit" "$jitter" "$loss"
     elif [[ $line =~ $throughput_regex ]]; then
       elapsed_start="${BASH_REMATCH[1]}"
       elapsed_end="${BASH_REMATCH[2]}"
       bitrate_raw="${BASH_REMATCH[3]}"
       unit="${BASH_REMATCH[4]}"
-
       if [ "$elapsed_start" = "0.00" ] || [ -z "$current_stream_base_time" ]; then
         current_stream_base_time=$(date +%s.%N)
       fi
-
-      if ! should_store_interval "$elapsed_start" "$elapsed_end"; then
-        continue
-      fi
-
-      bitrate=$(normalize_bitrate "$bitrate_raw" "$unit")
-      measurement_time=$(awk -v base="$current_stream_base_time" -v offset="$elapsed_end" 'BEGIN {printf "%.3f", base + offset}')
-      timestamp=$(date -d "@$measurement_time" +"%Y-%m-%d %H:%M:%S.%3N")
-      insert_sample "$timestamp" "$bitrate" 0 0 "" "tcp" "$(metadata_with_protocol tcp)"
+      buffer_server_sample tcp "$elapsed_start" "$elapsed_end" "$bitrate_raw" "$unit"
     fi
   done
+  flush_pending_server_sample; }
   exit 0
 fi
 
@@ -297,21 +379,51 @@ if ! [[ "$duration" =~ ^[0-9]+$ ]] || [ "$duration" -le 0 ]; then
   exit 1
 fi
 
+if ! [[ "$flows" =~ ^[1-9][0-9]*$ ]] || [ "$flows" -gt 32 ]; then
+  echo "Error: flows must be an integer between 1 and 32."
+  exit 1
+fi
+
+if ! [[ -z "$packet_size" || "$packet_size" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Error: packet size must be a positive integer."
+  exit 1
+fi
+
 protocol="$(printf '%s' "$protocol" | tr '[:upper:]' '[:lower:]')"
 if [ "$protocol" != "udp" ] && [ "$protocol" != "tcp" ]; then
   echo "Error: protocol must be udp or tcp."
   exit 1
 fi
 
+iperf_bandwidth="$bandwidth"
+if [ "$protocol" = "udp" ] && [ "$flows" -gt 1 ] && [ -n "$bandwidth" ]; then
+  if [[ "$bandwidth" =~ ^([0-9]+([.][0-9]+)?)([KkMmGgTt]?)$ ]]; then
+    iperf_bandwidth=$(awk -v value="${BASH_REMATCH[1]}" -v count="$flows" -v unit="${BASH_REMATCH[3]}" \
+      'BEGIN { printf "%.6g%s", value / count, unit }')
+  else
+    echo "Error: bandwidth must be a number optionally followed by K, M, G, or T when --flows is greater than 1."
+    exit 1
+  fi
+fi
+
 iperf_args=(iperf3 -c "$target_ip" -p "$port" -t "$duration" -f m -i 1)
+if [ "$reverse" = true ]; then
+  iperf_args+=(-R)
+fi
+if [ "$flows" -gt 1 ]; then
+  iperf_args+=(-P "$flows")
+fi
 if [ "$protocol" = "udp" ]; then
   iperf_args+=(-u)
-  if [ -n "$bandwidth" ]; then
-    iperf_args+=(-b "$bandwidth")
+  if [ -n "$iperf_bandwidth" ]; then
+    iperf_args+=(-b "$iperf_bandwidth")
   fi
 fi
 if [ -n "$source_ip" ]; then
   iperf_args+=(-B "$source_ip")
+fi
+if [ -n "$packet_size" ]; then
+  iperf_args+=(-l "$packet_size")
 fi
 
 if [ -z "$metadata" ]; then
@@ -323,7 +435,7 @@ start_time=$(date +%s.%N)
 echo "Running iperf3 client against $target_ip"
 stdbuf -oL -eL "${iperf_args[@]}" | while IFS= read -r line; do
   echo "$line"
-  if [ "$protocol" = "udp" ] && [[ $line =~ $udp_regex ]]; then
+  if [ "$protocol" = "udp" ] && { { [ "$flows" -eq 1 ] && [[ $line =~ $udp_regex ]]; } || { [ "$flows" -gt 1 ] && [[ $line =~ $sum_udp_regex ]]; }; }; then
     elapsed_start="${BASH_REMATCH[1]}"
     elapsed_end="${BASH_REMATCH[2]}"
     bitrate_raw="${BASH_REMATCH[3]}"
@@ -339,7 +451,7 @@ stdbuf -oL -eL "${iperf_args[@]}" | while IFS= read -r line; do
     measurement_time=$(awk -v base="$start_time" -v offset="$elapsed_end" 'BEGIN {printf "%.3f", base + offset}')
     timestamp=$(date -d "@$measurement_time" +"%Y-%m-%d %H:%M:%S.%3N")
     insert_sample "$timestamp" "$bitrate" "$jitter" "$loss" "$packet_size" "$protocol" "$(metadata_with_protocol "$protocol")"
-  elif [[ $line =~ $throughput_regex ]]; then
+  elif { { [ "$flows" -eq 1 ] && [[ $line =~ $throughput_regex ]]; } || { [ "$flows" -gt 1 ] && [[ $line =~ $sum_throughput_regex ]]; }; }; then
     elapsed_start="${BASH_REMATCH[1]}"
     elapsed_end="${BASH_REMATCH[2]}"
     bitrate_raw="${BASH_REMATCH[3]}"
