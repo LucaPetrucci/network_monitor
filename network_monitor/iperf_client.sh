@@ -22,6 +22,7 @@ duration=30
 protocol="udp"
 bandwidth=""
 packet_size=""
+window_size=""
 flows=1
 reverse=false
 metadata=""
@@ -90,6 +91,11 @@ while [ $# -gt 0 ]; do
       packet_size="$2"
       shift 2
       ;;
+    --window-size)
+      require_value "$1" "${2:-}"
+      window_size="$2"
+      shift 2
+      ;;
     --flows)
       require_value "$1" "${2:-}"
       flows="$2"
@@ -116,8 +122,8 @@ if [ -z "$mode" ]; then
   exit 1
 fi
 
-if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -le 0 ]; then
-  echo "Error: port must be a positive integer."
+if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -le 0 ] || [ "$port" -gt 65535 ]; then
+  echo "Error: port must be an integer between 1 and 65535."
   exit 1
 fi
 
@@ -180,11 +186,13 @@ detect_schema_capabilities() {
   local has_executed_command
   local has_protocol
   local has_packet_size
+  local has_window_size
   has_executed_command=$("${mysql_cmd[@]}" -Nse "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='$DB_NAME' AND TABLE_NAME='$IPERF_TABLE' AND COLUMN_NAME='executed_command';" 2>/dev/null || echo 0)
   has_protocol=$("${mysql_cmd[@]}" -Nse "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='$DB_NAME' AND TABLE_NAME='$IPERF_TABLE' AND COLUMN_NAME='protocol';" 2>/dev/null || echo 0)
   has_packet_size=$("${mysql_cmd[@]}" -Nse "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='$DB_NAME' AND TABLE_NAME='$IPERF_TABLE' AND COLUMN_NAME='packet_size';" 2>/dev/null || echo 0)
+  has_window_size=$("${mysql_cmd[@]}" -Nse "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='$DB_NAME' AND TABLE_NAME='$IPERF_TABLE' AND COLUMN_NAME='window_size';" 2>/dev/null || echo 0)
 
-  if [ "$has_executed_command" = "1" ] && [ "$has_protocol" = "1" ] && [ "$has_packet_size" = "1" ]; then
+  if [ "$has_executed_command" = "1" ] && [ "$has_protocol" = "1" ] && [ "$has_packet_size" = "1" ] && [ "$has_window_size" = "1" ]; then
     extended_columns_supported="yes"
   fi
 }
@@ -195,11 +203,13 @@ insert_sample() {
   local jitter="${3:-0}"
   local loss="${4:-0}"
   local sample_packet_size="${5:-}"
-  local sample_protocol="${6:-$protocol}"
-  local sample_metadata="${7:-$metadata}"
+  local sample_window_size="${6:-}"
+  local sample_protocol="${7:-$protocol}"
+  local sample_metadata="${8:-$metadata}"
   local -a mysql_cmd=()
   local escaped_command
   local sql_packet_size="NULL"
+  local sql_window_size="NULL"
 
   make_mysql_cmd mysql_cmd
   escaped_command=$(escape_sql "$sample_metadata")
@@ -207,9 +217,12 @@ insert_sample() {
   if [ -n "$sample_packet_size" ]; then
     sql_packet_size="$sample_packet_size"
   fi
+  if [ -n "$sample_window_size" ]; then
+    sql_window_size="'$(escape_sql "$sample_window_size")'"
+  fi
 
   if [ "$extended_columns_supported" = "yes" ]; then
-    "${mysql_cmd[@]}" -e "INSERT INTO \`$IPERF_TABLE\` (timestamp, bitrate, jitter, lost_percentage, executed_command, protocol, packet_size) VALUES ('$timestamp', $bitrate, $jitter, $loss, '$escaped_command', '$sample_protocol', $sql_packet_size);" \
+    "${mysql_cmd[@]}" -e "INSERT INTO \`$IPERF_TABLE\` (timestamp, bitrate, jitter, lost_percentage, executed_command, protocol, packet_size, window_size) VALUES ('$timestamp', $bitrate, $jitter, $loss, '$escaped_command', '$sample_protocol', $sql_packet_size, $sql_window_size);" \
       2>/dev/null || echo "Warning: failed to insert iperf sample at $timestamp"
   else
     "${mysql_cmd[@]}" -e "INSERT INTO \`$IPERF_TABLE\` (timestamp, bitrate, jitter, lost_percentage) VALUES ('$timestamp', $bitrate, $jitter, $loss);" \
@@ -279,7 +292,7 @@ if [ "$mode" = "server" ]; then
     bitrate=$(normalize_bitrate "$bitrate_raw" "$unit")
     measurement_time=$(awk -v base="$current_stream_base_time" -v offset="$elapsed_end" 'BEGIN {printf "%.3f", base + offset}')
     timestamp=$(date -d "@$measurement_time" +"%Y-%m-%d %H:%M:%S.%3N")
-    insert_sample "$timestamp" "$bitrate" "$jitter" "$loss" "" "$kind" "$(metadata_with_protocol "$kind")"
+    insert_sample "$timestamp" "$bitrate" "$jitter" "$loss" "" "" "$kind" "$(metadata_with_protocol "$kind")"
   }
 
   flush_pending_server_sample() {
@@ -389,10 +402,24 @@ if ! [[ -z "$packet_size" || "$packet_size" =~ ^[1-9][0-9]*$ ]]; then
   exit 1
 fi
 
+if ! [[ -z "$window_size" || "$window_size" =~ ^[1-9][0-9]*([KkMmGg])?$ ]]; then
+  echo "Error: window size must be a positive integer optionally followed by K, M, or G."
+  exit 1
+fi
+
 protocol="$(printf '%s' "$protocol" | tr '[:upper:]' '[:lower:]')"
 if [ "$protocol" != "udp" ] && [ "$protocol" != "tcp" ]; then
   echo "Error: protocol must be udp or tcp."
   exit 1
+fi
+
+if [ -n "$window_size" ] && [ "$protocol" != "tcp" ]; then
+  echo "Error: window size can only be used with TCP."
+  exit 1
+fi
+
+if [ -z "$packet_size" ]; then
+  packet_size=1460
 fi
 
 iperf_bandwidth="$bandwidth"
@@ -415,6 +442,7 @@ if [ "$flows" -gt 1 ]; then
 fi
 if [ "$protocol" = "udp" ]; then
   iperf_args+=(-u)
+  iperf_args+=(--get-server-output)
   if [ -n "$iperf_bandwidth" ]; then
     iperf_args+=(-b "$iperf_bandwidth")
   fi
@@ -423,7 +451,14 @@ if [ -n "$source_ip" ]; then
   iperf_args+=(-B "$source_ip")
 fi
 if [ -n "$packet_size" ]; then
-  iperf_args+=(-l "$packet_size")
+  if [ "$protocol" = "udp" ]; then
+    iperf_args+=(-l "$packet_size")
+  else
+    iperf_args+=(-M "$packet_size")
+  fi
+fi
+if [ -n "$window_size" ]; then
+  iperf_args+=(-w "$window_size")
 fi
 
 if [ -z "$metadata" ]; then
@@ -432,10 +467,15 @@ if [ -z "$metadata" ]; then
 fi
 
 start_time=$(date +%s.%N)
+parse_udp_receiver=false
 echo "Running iperf3 client against $target_ip"
 stdbuf -oL -eL "${iperf_args[@]}" | while IFS= read -r line; do
   echo "$line"
-  if [ "$protocol" = "udp" ] && { { [ "$flows" -eq 1 ] && [[ $line =~ $udp_regex ]]; } || { [ "$flows" -gt 1 ] && [[ $line =~ $sum_udp_regex ]]; }; }; then
+  if [ "$protocol" = "udp" ] && [ "$line" = "Server output:" ]; then
+    parse_udp_receiver=true
+    continue
+  fi
+  if [ "$protocol" = "udp" ] && [ "$parse_udp_receiver" = true ] && { { [ "$flows" -eq 1 ] && [[ $line =~ $udp_regex ]]; } || { [ "$flows" -gt 1 ] && [[ $line =~ $sum_udp_regex ]]; }; }; then
     elapsed_start="${BASH_REMATCH[1]}"
     elapsed_end="${BASH_REMATCH[2]}"
     bitrate_raw="${BASH_REMATCH[3]}"
@@ -450,8 +490,8 @@ stdbuf -oL -eL "${iperf_args[@]}" | while IFS= read -r line; do
     bitrate=$(normalize_bitrate "$bitrate_raw" "$unit")
     measurement_time=$(awk -v base="$start_time" -v offset="$elapsed_end" 'BEGIN {printf "%.3f", base + offset}')
     timestamp=$(date -d "@$measurement_time" +"%Y-%m-%d %H:%M:%S.%3N")
-    insert_sample "$timestamp" "$bitrate" "$jitter" "$loss" "$packet_size" "$protocol" "$(metadata_with_protocol "$protocol")"
-  elif { { [ "$flows" -eq 1 ] && [[ $line =~ $throughput_regex ]]; } || { [ "$flows" -gt 1 ] && [[ $line =~ $sum_throughput_regex ]]; }; }; then
+    insert_sample "$timestamp" "$bitrate" "$jitter" "$loss" "$packet_size" "$window_size" "$protocol" "$(metadata_with_protocol "$protocol")"
+  elif [ "$protocol" = "tcp" ] && { { [ "$flows" -eq 1 ] && [[ $line =~ $throughput_regex ]]; } || { [ "$flows" -gt 1 ] && [[ $line =~ $sum_throughput_regex ]]; }; }; then
     elapsed_start="${BASH_REMATCH[1]}"
     elapsed_end="${BASH_REMATCH[2]}"
     bitrate_raw="${BASH_REMATCH[3]}"
@@ -464,6 +504,6 @@ stdbuf -oL -eL "${iperf_args[@]}" | while IFS= read -r line; do
     bitrate=$(normalize_bitrate "$bitrate_raw" "$unit")
     measurement_time=$(awk -v base="$start_time" -v offset="$elapsed_end" 'BEGIN {printf "%.3f", base + offset}')
     timestamp=$(date -d "@$measurement_time" +"%Y-%m-%d %H:%M:%S.%3N")
-    insert_sample "$timestamp" "$bitrate" 0 0 "$packet_size" "$protocol" "$(metadata_with_protocol "$protocol")"
+    insert_sample "$timestamp" "$bitrate" 0 0 "$packet_size" "$window_size" "$protocol" "$(metadata_with_protocol "$protocol")"
   fi
 done

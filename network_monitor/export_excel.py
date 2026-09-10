@@ -98,6 +98,27 @@ def parse_timestamp(value: str) -> Optional[datetime]:
     return None
 
 
+def add_range_to_output_path(path: Path, start: Optional[str], end: Optional[str]) -> Path:
+    """Append a stable start/end suffix when a complete export range is given."""
+    if not start or not end:
+        return path
+
+    start_dt = parse_timestamp(start)
+    end_dt = parse_timestamp(end)
+    if start_dt is None or end_dt is None:
+        raise ValueError("--start and --end must use YYYY-MM-DD HH:MM:SS[.ffffff]")
+    if end_dt < start_dt:
+        raise ValueError("--end must not be earlier than --start")
+
+    range_suffix = (
+        f"_{start_dt.strftime('%Y%m%d_%H%M%S')}"
+        f"_to_{end_dt.strftime('%Y%m%d_%H%M%S')}"
+    )
+    if path.stem.endswith(range_suffix):
+        return path
+    return path.with_name(f"{path.stem}{range_suffix}{path.suffix}")
+
+
 def split_rows_into_runs(rows: list[list[str]], gap_seconds: float = 15.0) -> list[list[list[str]]]:
     runs: list[list[list[str]]] = []
     current_run: list[list[str]] = []
@@ -151,6 +172,7 @@ def merge_iperf_rows(local_rows: list[list[str]], remote_rows: list[list[str]]) 
                 local_row[5] if len(local_row) > 5 else (remote_row[5] if len(remote_row) > 5 else ""),
                 local_row[6] if len(local_row) > 6 else (remote_row[6] if len(remote_row) > 6 else ""),
                 local_row[7] if len(local_row) > 7 else (remote_row[7] if len(remote_row) > 7 else ""),
+                local_row[8] if len(local_row) > 8 else (remote_row[8] if len(remote_row) > 8 else ""),
             ])
 
     return merged
@@ -179,6 +201,10 @@ def main() -> int:
         return 1
 
     output_path = Path(args.output_path).expanduser().resolve()
+    try:
+        output_path = add_range_to_output_path(output_path, args.start, args.end)
+    except ValueError as exc:
+        parser.error(str(exc))
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     config = load_config(SETUP_CONF)
@@ -209,14 +235,14 @@ def main() -> int:
     workbook.remove(workbook.active)
 
     iperf_query = (
-        f"SELECT id, timestamp, bitrate, jitter, lost_percentage, protocol, packet_size, executed_command "
+        f"SELECT id, timestamp, bitrate, jitter, lost_percentage, protocol, packet_size, window_size, executed_command "
         f"FROM `{iperf_table}`{where_clause} ORDER BY timestamp ASC;"
     )
 
     queries = {
         "ping_results": f"SELECT id, timestamp, latency FROM `{ping_table}`{where_clause} ORDER BY timestamp ASC;",
         "interruptions": f"SELECT id, timestamp, interruption_time FROM `{interruptions_table}`{where_clause} ORDER BY timestamp ASC;",
-        "commands": f"SELECT id, timestamp, protocol, packet_size, executed_command FROM `{iperf_table}`{where_clause} ORDER BY timestamp ASC;",
+        "commands": f"SELECT id, timestamp, protocol, packet_size, window_size, executed_command FROM `{iperf_table}`{where_clause} ORDER BY timestamp ASC;",
     }
 
     local_iperf_rows = run_query(local_db, iperf_query)
@@ -240,6 +266,7 @@ def main() -> int:
                 row[5] if len(row) > 5 else "",
                 row[6] if len(row) > 6 else "",
                 row[7] if len(row) > 7 else "",
+                row[8] if len(row) > 8 else "",
             ]
             for row in local_iperf_rows
         ]
@@ -255,6 +282,7 @@ def main() -> int:
         "Lost Packets Remote",
         "protocol",
         "packet_size",
+        "window_size",
         "executed_command",
     ]
     add_sheet(workbook, "iperf_results", [iperf_headers, *merged_iperf_rows])

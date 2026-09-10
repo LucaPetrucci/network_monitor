@@ -27,7 +27,7 @@ RUN_TIMEOUT=0
 PROTOCOLS="udp,tcp"
 # BANDWIDTHS="1M"
 BANDWIDTHS="1M,10M,50M,100M,250M,500M,750M,1G"
-PACKET_SIZES="500,1000,1472"
+PACKET_SIZES="500,1000,1460"
 # PACKET_SIZES="500"
 
 # Empty means "use all test paths".
@@ -35,6 +35,35 @@ VLAN_FILTER=""
 
 # Format: vlan|channel|source_ip_nuc2|target_ip_nuc1.
 TEST_PATHS="28|5|10.10.28.11|10.10.28.10,29|6|10.10.29.11|10.10.29.10"
+
+usage() {
+  cat <<EOF
+Usage: $0 [--dry-run]
+
+Runs the NUC2 -> NUC1 Cedex base-measurement matrix. UDP bandwidths are
+tested independently; TCP is run once per path, packet size, and repetition.
+
+Options:
+  --dry-run  Print every planned case without generating traffic.
+  -h, --help Show this help.
+EOF
+}
+
+case "${1:-}" in
+  "")
+    ;;
+  --dry-run)
+    DRY_RUN=true
+    ;;
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
 
 log_file=""
 cleanup_in_progress=false
@@ -153,6 +182,18 @@ if [ "${#PROTOCOLS[@]}" -eq 0 ]; then
   exit 1
 fi
 
+for protocol in "${PROTOCOLS[@]}"; do
+  if [ "$protocol" != "udp" ] && [ "$protocol" != "tcp" ]; then
+    echo "Error: unsupported protocol '$protocol'; use udp or tcp." >&2
+    exit 1
+  fi
+done
+
+if contains_item udp "${PROTOCOLS[@]}" && [ "${#BANDWIDTHS[@]}" -eq 0 ]; then
+  echo "Error: at least one bandwidth is required when UDP is enabled." >&2
+  exit 1
+fi
+
 if [ "${#PACKET_SIZES[@]}" -eq 0 ]; then
   echo "Error: at least one packet size is required." >&2
   exit 1
@@ -201,15 +242,17 @@ fi
 
 count_cases() {
   local total=0
-  local path_entry protocol packet_size bandwidth rep
+  local path_entry protocol packet_size rep
   for path_entry in "${selected_paths[@]}"; do
     for protocol in "${PROTOCOLS[@]}"; do
       for packet_size in "${PACKET_SIZES[@]}"; do
-        for bandwidth in "${BANDWIDTHS[@]}"; do
+        if [ "$protocol" = "udp" ]; then
+          total=$((total + (${#BANDWIDTHS[@]} * REPETITIONS)))
+        else
           for ((rep = 1; rep <= REPETITIONS; rep++)); do
             total=$((total + 1))
           done
-        done
+        fi
       done
     done
   done
@@ -236,7 +279,7 @@ run_one_case() {
   local bandwidth="$7"
   local repetition="$8"
   local case_no="$9"
-  local case_started_ts
+  local case_started_ts bandwidth_note
   local -a cmd=(
     "$NETWORK_MONITOR_CMD"
     "$target_ip"
@@ -247,18 +290,15 @@ run_one_case() {
   )
 
   case_started_ts="$(date '+%F %T')"
-  case_report_lines+=("Case $case_no started at $case_started_ts | vlan=$vlan channel=$channel protocol=$protocol packet_size=$packet_size bandwidth=$bandwidth repetition=$repetition/$REPETITIONS src=$source_ip dst=$target_ip")
-
   if [ "$protocol" = "udp" ]; then
     cmd+=(--udp --bandwidth "$bandwidth")
+    bandwidth_note="$bandwidth"
   else
     cmd+=(--tcp)
+    bandwidth_note="n/a"
   fi
 
-  local bandwidth_note="$bandwidth"
-  if [ "$protocol" != "udp" ]; then
-    bandwidth_note="${bandwidth} (ignored for tcp)"
-  fi
+  case_report_lines+=("Case $case_no started at $case_started_ts | vlan=$vlan channel=$channel protocol=$protocol packet_size=$packet_size bandwidth=$bandwidth_note repetition=$repetition/$REPETITIONS src=$source_ip dst=$target_ip")
 
   log "Case $case_no/$total_cases vlan=$vlan channel=$channel protocol=$protocol packet_size=$packet_size bandwidth=${bandwidth_note} repetition=$repetition/$REPETITIONS src=$source_ip dst=$target_ip"
   log "Case $case_no start time: $case_started_ts"
@@ -288,7 +328,12 @@ for entry in "${selected_paths[@]}"; do
 
   for protocol in "${PROTOCOLS[@]}"; do
     for packet_size in "${PACKET_SIZES[@]}"; do
-      for bandwidth in "${BANDWIDTHS[@]}"; do
+      if [ "$protocol" = "udp" ]; then
+        case_bandwidths=("${BANDWIDTHS[@]}")
+      else
+        case_bandwidths=("")
+      fi
+      for bandwidth in "${case_bandwidths[@]}"; do
         for ((repetition = 1; repetition <= REPETITIONS; repetition++)); do
           case_no=$((case_no + 1))
           run_one_case "$vlan" "$channel" "$source_ip" "$target_ip" "$protocol" "$packet_size" "$bandwidth" "$repetition" "$case_no"

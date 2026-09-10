@@ -2,6 +2,8 @@
 
 Questa guida descrive la procedura minima per scegliere un percorso ed eseguire un test tra NUC2 e NUC1. Per installazione, database e opzioni avanzate consultare il `README.md`.
 
+Per eseguire un singolo test con durata, protocollo, bandwidth, packet size, flussi o direzione personalizzati, usare [`docs/MANUAL_TEST_GUIDE.md`](../MANUAL_TEST_GUIDE.md).
+
 ## 1. Prima di iniziare
 
 > **Sicurezza:** non modificare o interrompere mai la connessione di management su VLAN27.
@@ -224,6 +226,8 @@ Poi avviare la campagna:
 ```
 
 La campagna attuale prova CEIT, bypass TN0 e bypass TN1, genera report e log sotto `results/` e ripristina lo stato iniziale delle route dopo successo, errore o `Ctrl+C`. **INDRA non è ancora incluso nella campagna automatica.**
+
+Questa campagna è distinta da `tests/scripts/run_nuc2_base_measurements.sh`, che esegue la matrice Cedex TN0/TN1 ed esporta i risultati sotto `export/`.
 
 ## 10. Problemi comuni
 

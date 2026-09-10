@@ -58,16 +58,20 @@ grep -q 'Server listening' "$test_dir/server.log"
   --reverse \
   --flows 4 \
   --packet-size 1400 \
+  --window-size 64K \
   --port "$port" >"$test_dir/client.log" 2>&1
 
 grep -q 'Monitoring run completed' "$test_dir/client.log"
 grep -q '\[SUM\]' "$test_dir/client.log"
 grep -q -- '-R' "$IPERF_ARGUMENT_LOG"
 grep -q -- '-P 4' "$IPERF_ARGUMENT_LOG"
-grep -q -- '-l 1400' "$IPERF_ARGUMENT_LOG"
+grep -q -- '-M 1400' "$IPERF_ARGUMENT_LOG"
+grep -q -- '-w 64K' "$IPERF_ARGUMENT_LOG"
 grep -q 'direction=reverse flows=4' "$MOCK_MYSQL_LOG"
 grep -q 'traffic_source=127.0.0.1 traffic_target=127.0.0.1' "$MOCK_MYSQL_LOG"
 grep -q 'packet_size=1400' "$MOCK_MYSQL_LOG"
+grep -q 'window_size=64K' "$MOCK_MYSQL_LOG"
+grep -q 'packet_size, window_size)' "$MOCK_MYSQL_LOG"
 
 "$install_dir/server_launcher.sh" 127.0.0.1 \
   --source-ip 127.0.0.1 \
@@ -81,6 +85,7 @@ grep -q 'packet_size=1400' "$MOCK_MYSQL_LOG"
 grep -q 'Monitoring run completed' "$test_dir/client_udp.log"
 grep -q '\[SUM\]' "$test_dir/client_udp.log"
 grep -q -- '-u' "$IPERF_ARGUMENT_LOG"
+grep -q -- '--get-server-output' "$IPERF_ARGUMENT_LOG"
 grep -q -- '-b 5M' "$IPERF_ARGUMENT_LOG"
 grep -q -- '-P 4' "$IPERF_ARGUMENT_LOG"
 grep -q -- '-l 1200' "$IPERF_ARGUMENT_LOG"
@@ -95,11 +100,13 @@ grep -q 'bandwidth=20M packet_size=1200' "$MOCK_MYSQL_LOG"
   --port "$port" >"$test_dir/client_default.log" 2>&1
 
 grep -q 'Monitoring run completed' "$test_dir/client_default.log"
-if grep -Eq -- '(^| )-R( |$)|(^| )-P( |$)|(^| )-l( |$)' "$IPERF_ARGUMENT_LOG"; then
-  echo 'Default client unexpectedly enabled reverse, parallel flows, or packet size.' >&2
+if grep -Eq -- '(^| )-R( |$)|(^| )-P( |$)|(^| )-w( |$)' "$IPERF_ARGUMENT_LOG"; then
+  echo 'Default TCP client unexpectedly enabled reverse, parallel flows, or window size.' >&2
   exit 1
 fi
+grep -q -- '-M 1460' "$IPERF_ARGUMENT_LOG"
 grep -q 'direction=forward flows=1' "$MOCK_MYSQL_LOG"
+grep -q 'packet_size=1460' "$MOCK_MYSQL_LOG"
 
 if "$install_dir/server_launcher.sh" 127.0.0.1 --flows 0 >"$test_dir/invalid.log" 2>&1; then
   echo 'Expected --flows 0 to fail.' >&2
@@ -112,5 +119,17 @@ if "$install_dir/server_launcher.sh" 127.0.0.1 --packet-size 0 >"$test_dir/inval
   exit 1
 fi
 grep -q 'positive integer' "$test_dir/invalid.log"
+
+if "$install_dir/server_launcher.sh" 127.0.0.1 --port 65536 >"$test_dir/invalid.log" 2>&1; then
+  echo 'Expected --port 65536 to fail.' >&2
+  exit 1
+fi
+grep -q 'between 1 and 65535' "$test_dir/invalid.log"
+
+if "$install_dir/server_launcher.sh" 127.0.0.1 --udp --window-size 64K >"$test_dir/invalid.log" 2>&1; then
+  echo 'Expected UDP with --window-size to fail.' >&2
+  exit 1
+fi
+grep -q 'only be used with --tcp' "$test_dir/invalid.log"
 
 printf 'network_monitor2 option tests passed.\n'

@@ -120,9 +120,9 @@ You can also export only a time range:
 network_monitor2 --export-excel results_window.xlsx --start "2026-05-07 10:00:00" --end "2026-05-07 12:00:00"
 ```
 
-To include `Data Rate Remote`, `Jitter Remote`, and `Lost Packets Remote`, fill the optional `REMOTE_DB_*` entries in `network_monitor/setup.conf` before exporting. In this setup the remote rows are fetched directly from the DB exposed on NUC1 at `10.10.27.10`.
+To include `Data Rate Remote`, `Jitter Remote`, and `Lost Packets Remote`, add the optional `REMOTE_DB_*` entries to `/opt/network_monitor2/setup.conf` before exporting. Prefer a read-only remote DB account. See `network_monitor/setup.conf.example` for the supported keys.
 
-The automated Cedex campaign script now exports the whole campaign window at the end of the run into `export/`, using a filename that includes the campaign start and end timestamps.
+The Cedex base-measurement script, `tests/scripts/run_nuc2_base_measurements.sh`, exports the whole campaign window at the end of the run into `export/`, using a filename that includes the campaign start and end timestamps.
 It also writes a matching `.txt` summary with the total duration and the start time of each case.
 
 The workbook includes:
@@ -153,17 +153,19 @@ network_monitor2 --help
 Example DB checks:
 
 ```bash
-mysql -u <LOCAL_DB_USER> -p<LOCAL_DB_PASSWORD> <LOCAL_DB_NAME> -e "
+mysql -h <LOCAL_DB_HOST> -P <LOCAL_DB_PORT> -u <LOCAL_DB_USER> -p <LOCAL_DB_NAME> -e "
 SELECT COUNT(*) AS iperf_rows FROM iperf_results;
 SELECT COUNT(*) AS ping_rows FROM ping_results;
 SELECT COUNT(*) AS intr_rows FROM interruptions;
-SELECT timestamp, protocol, executed_command
+SELECT timestamp, protocol, packet_size, window_size, executed_command
 FROM iperf_results
 ORDER BY id DESC
 LIMIT 5;"
 ```
 
 ## 10. Automated Cedex base measurements
+
+This is a separate TN0/TN1 measurement matrix. The CEIT/TN0/TN1 KPI campaign documented in the operational guides is launched with `./run_kpi_tests.sh` and writes to `results/`.
 
 For the NUC2 -> NUC1 base-measurement campaign, edit the global variables at the top of:
 
@@ -174,6 +176,7 @@ tests/scripts/run_nuc2_base_measurements.sh
 Then run it directly:
 
 ```bash
+./tests/scripts/run_nuc2_base_measurements.sh --dry-run
 ./tests/scripts/run_nuc2_base_measurements.sh
 ```
 
@@ -181,4 +184,5 @@ Notes:
 
 - The script uses `network_monitor2` so results continue to go through the existing DB and dashboard flow.
 - The script writes a small local log under `tests/logs/` by default.
-- Set `DRY_RUN=true` at the top of the script if you want to preview the command sequence first.
+- `--dry-run` previews the 54-case default matrix without generating traffic.
+- UDP runs every configured bandwidth; TCP runs once per path and packet size because bandwidth is not an applicable TCP matrix dimension.

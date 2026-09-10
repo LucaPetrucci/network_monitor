@@ -7,21 +7,22 @@ produced it. The `protocol` column is the source of truth used by Excel export
 and Grafana dashboards, so it must be correct for both local client-side samples
 and remote/server-side samples.
 
-## Current Bug
+## Resolved Bug
 
-`network_monitor2 --server` starts a long-lived iperf server through
+Earlier versions of `network_monitor2 --server` started a long-lived iperf server through
 `iperf_client.sh --server`. In that path, `iperf_client.sh` initializes
 `protocol=udp` and no caller passes a per-test protocol into the server process.
 
-As a result, TCP samples collected on the server side can be inserted as:
+As a result, TCP samples collected on the server side could be inserted as:
 
 ```text
 protocol=udp
 executed_command=... protocol=udp ...
 ```
 
-Export and Grafana then display the wrong protocol because they read the stored
-DB value directly.
+The current implementation infers the protocol for every server-side interval,
+passes it explicitly to the insert path, and keeps `executed_command` consistent.
+Export and Grafana continue to read the stored DB value directly.
 
 ## Required Behavior
 
@@ -49,7 +50,7 @@ If the extended columns do not exist on an older installation, the script may
 fall back to the legacy insert path, but new installs and migrated installs must
 store protocol metadata.
 
-## Verification Plan
+## Regression Verification
 
 - Run Bash syntax checks on the modified shell scripts.
 - Confirm the insert path accepts an explicit per-sample protocol.

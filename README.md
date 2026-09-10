@@ -14,6 +14,8 @@ For the shortest path from route selection to a working test, use the operationa
 
 - [English guide](docs/network_monitor_guide/NETWORK_MONITOR_GUIDE.md)
 - [Guida italiana](docs/network_monitor_guide/GUIDA_NETWORK_MONITOR.md)
+- [Guida a un test manuale con parametri personalizzati](docs/MANUAL_TEST_GUIDE.md)
+- [Custom manual test guide](docs/MANUAL_TEST_GUIDE_EN.md)
 
 ## Features
 
@@ -33,8 +35,11 @@ For the shortest path from route selection to a working test, use the operationa
 - Debian or Ubuntu
 - Root or sudo access for installation
 - MariaDB reachable from the host
-- `iperf3` available on the target host when running client mode
+- `iperf3` on both hosts
+- the MariaDB command-line client, `ping`, `pgrep`, and `stdbuf`
 - Grafana if you want to use the included dashboards
+
+`setup_v2.sh` installs the required runtime commands on Debian/Ubuntu.
 
 ## Installation
 
@@ -68,6 +73,8 @@ The installer writes `/opt/network_monitor2/setup.conf` with these values:
 - `IPERF_TABLE`
 - `PING_TABLE`
 - `INTERRUPTIONS_TABLE`
+
+Because this file contains a password, the installer assigns it to `root` and the invoking user's group with mode `640`.
 
 If custom table names are configured, the installer creates compatibility views named `iperf_results`, `ping_results`, and `interruptions` when possible so existing dashboards keep working.
 
@@ -113,7 +120,7 @@ Use `--source-ip` when the client host has more than one test IP and you want to
 
 ```bash
 network_monitor2 --server [--bind-ip <local_ip>] [--port <port>] [--interface <iface>]
-network_monitor2 <target_ip> [--source-ip <local_ip>] [--port <port>] [--duration <seconds>] [--udp|--tcp] [--bandwidth <rate>] [--interface <iface>]
+network_monitor2 <target_ip> [--source-ip <local_ip>] [--port <port>] [--duration <seconds>] [--udp|--tcp] [--bandwidth <rate>] [--packet-size <bytes>] [--window-size <size>] [--flows <count>] [--reverse] [--interface <iface>]
 network_monitor2 --export-excel <output.xlsx> [--start <timestamp>] [--end <timestamp>]
 ```
 
@@ -128,7 +135,10 @@ Options:
 - `--udp`: use UDP for the client, default
 - `--tcp`: use TCP for the client
 - `--bandwidth <rate>`: UDP bandwidth, default `100M`
-- `--packet-size <size>`: client packet/buffer size
+- `--packet-size <size>`: UDP datagram size (`iperf3 -l`) or TCP MSS (`iperf3 -M`); default `1460` bytes
+- `--window-size <size>`: TCP socket buffer/window size, for example `256K` or `1M`
+- `--flows <count>`: number of parallel `iperf3` flows, from 1 to 32; default `1`
+- `--reverse`: generate traffic from the server toward the client
 - `--export-excel <path>`: export local DB data to an Excel workbook
 - `--start <timestamp>`: inclusive lower timestamp bound for export
 - `--end <timestamp>`: inclusive upper timestamp bound for export
@@ -140,6 +150,7 @@ Defaults:
 - protocol: `udp`
 - duration: `30`
 - UDP bandwidth: `100M`
+- packet size: `1460` bytes (UDP datagram size or TCP MSS)
 
 ## Excel Export
 
@@ -155,10 +166,16 @@ To export only a specific time window:
 network_monitor2 --export-excel results_window.xlsx --start "2026-05-07 10:00:00" --end "2026-05-07 12:00:00"
 ```
 
-If you also want the remote `iperf` values side by side, fill the optional `REMOTE_DB_*` entries in `network_monitor/setup.conf` before exporting. The workbook will then add `Data Rate Remote`, `Jitter Remote`, and `Lost Packets Remote`. On this setup the remote values are fetched directly from the DB exposed on NUC1 at `10.10.27.10`.
+When both bounds are provided, the exporter automatically appends them to the filename, for example `results_window_20260507_100000_to_20260507_120000.xlsx`. If the exact suffix is already present, it is not duplicated.
 
-The automated NUC2 -> NUC1 campaign script exports the full campaign window at the end of the run into `export/`, and the workbook name includes the start and end timestamps.
+If you also want the remote `iperf` values side by side, add the optional `REMOTE_DB_*` entries to `/opt/network_monitor2/setup.conf` before exporting. Use a read-only database account where possible. The workbook will then populate `Data Rate Remote`, `Jitter Remote`, and `Lost Packets Remote`.
+
+The Cedex base-measurement script, `tests/scripts/run_nuc2_base_measurements.sh`, exports the full campaign window at the end of the run into `export/`, and the workbook name includes the start and end timestamps.
 It also writes a matching `.txt` report with the campaign duration and the start time of every case.
+
+This is separate from `run_kpi_tests.sh`, which tests CEIT, bypass TN0, and bypass TN1 and writes its reports under `results/`.
+
+With the default Cedex settings there are 54 cases: 48 UDP cases (2 paths × 3 packet sizes × 8 bandwidths) and 6 TCP cases (2 paths × 3 packet sizes). Use `tests/scripts/run_nuc2_base_measurements.sh --dry-run` to inspect them without generating traffic.
 
 The workbook contains these sheets:
 
@@ -207,7 +224,7 @@ Useful panels include:
 - interruptions
 - command metadata
 
-The `executed_command` field carries enough metadata to distinguish source IP, target IP, protocol, port, duration, and optional interface in Grafana tables.
+The `executed_command` field carries enough metadata to distinguish source IP, target IP, protocol, port, duration, flow count, direction, packet size, TCP window size, and optional interface in Grafana tables.
 
 ### Panel Guide
 
@@ -335,7 +352,7 @@ network_monitor/
   interruption_monitor.sh
   export_excel.py
   uninstall.sh
-  setup.conf
+  setup.conf.example
 docker-compose.grafana.yml
 docker/
 tests/

@@ -23,6 +23,11 @@ echo "Command     : $COMMAND_NAME"
 echo "This setup does NOT modify existing network_monitor installation."
 echo
 
+echo "Installing runtime dependencies..."
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y iperf3 default-mysql-client iputils-ping procps coreutils python3-venv
+
 mkdir -p "$INSTALL_DIR"
 
 read -r -p "DB host [127.0.0.1]: " DB_HOST
@@ -57,6 +62,11 @@ IPERF_TABLE=$IPERF_TABLE
 PING_TABLE=$PING_TABLE
 INTERRUPTIONS_TABLE=$INTERRUPTIONS_TABLE
 CFG
+
+INSTALL_USER="${SUDO_USER:-root}"
+INSTALL_GROUP="$(id -gn "$INSTALL_USER")"
+chown root:"$INSTALL_GROUP" "$SETUP_CONF"
+chmod 640 "$SETUP_CONF"
 
 echo "✅ Wrote config: $SETUP_CONF"
 
@@ -112,7 +122,8 @@ if command -v mysql >/dev/null 2>&1; then
     lost_percentage FLOAT,
     executed_command TEXT,
     protocol VARCHAR(16),
-    packet_size INT
+    packet_size INT,
+    window_size VARCHAR(32)
   );
   CREATE TABLE IF NOT EXISTS \`$PING_TABLE\` (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -152,6 +163,7 @@ if command -v mysql >/dev/null 2>&1; then
   ensure_column_exists "$IPERF_TABLE" "executed_command" "TEXT"
   ensure_column_exists "$IPERF_TABLE" "protocol" "VARCHAR(16)"
   ensure_column_exists "$IPERF_TABLE" "packet_size" "INT"
+  ensure_column_exists "$IPERF_TABLE" "window_size" "VARCHAR(32)"
 
   ensure_compat_view() {
     local legacy_name="$1"
@@ -184,8 +196,6 @@ if command -v mysql >/dev/null 2>&1; then
 fi
 
 echo "📦 Creating install-local Python virtual environment..."
-apt-get update
-apt-get install -y python3-venv
 python3 -m venv "$VENV_DIR"
 "$VENV_DIR/bin/pip" install --upgrade pip
 "$VENV_DIR/bin/pip" install -r "$INSTALL_DIR/requirements.txt"

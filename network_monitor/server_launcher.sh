@@ -20,6 +20,7 @@ duration=30
 protocol="udp"
 bandwidth="100M"
 packet_size=""
+window_size=""
 flows=1
 reverse=false
 target_ip=""
@@ -71,7 +72,7 @@ show_help() {
   cat <<'EOF'
 Usage:
   network_monitor2 --server [--bind-ip <local_ip>] [--port <port>] [--interface <iface>]
-  network_monitor2 <target_ip> [--source-ip <local_ip>] [--udp|--tcp] [--reverse] [--flows <count>] [--packet-size <bytes>] [options]
+  network_monitor2 <target_ip> [--source-ip <local_ip>] [--udp|--tcp] [--reverse] [--flows <count>] [--packet-size <bytes>] [--window-size <size>] [options]
   network_monitor2 --export-excel <output.xlsx> [--start <timestamp>] [--end <timestamp>]
 
 Description:
@@ -89,7 +90,8 @@ Options:
   --udp                   Use UDP for iperf3 client (default).
   --tcp                   Use TCP for iperf3 client.
   --bandwidth <rate>      Total UDP bandwidth across all flows (default: 100M).
-  --packet-size <bytes>   UDP datagram or TCP buffer length.
+  --packet-size <bytes>   UDP datagram size or TCP MSS (default: 1460).
+  --window-size <size>    TCP socket buffer/window size, for example 256K or 1M.
   --flows <count>         Number of parallel iperf3 flows (default: 1, max: 32).
   --reverse               Send test traffic from server to client.
   --export-excel <path>   Export local DB data to an Excel workbook.
@@ -162,6 +164,11 @@ while [ $# -gt 0 ]; do
       packet_size="$2"
       shift 2
       ;;
+    --window-size)
+      require_value "$1" "${2:-}"
+      window_size="$2"
+      shift 2
+      ;;
     --flows)
       require_value "$1" "${2:-}"
       flows="$2"
@@ -209,7 +216,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -n "$export_excel" ]; then
-  if [ "$server_mode" = true ] || [ -n "$target_ip" ] || [ -n "$source_ip" ] || [ -n "$bind_ip" ] || [ -n "$interface" ] || [ -n "$packet_size" ] || [ "$flows" != 1 ] || [ "$reverse" = true ]; then
+  if [ "$server_mode" = true ] || [ -n "$target_ip" ] || [ -n "$source_ip" ] || [ -n "$bind_ip" ] || [ -n "$interface" ] || [ -n "$packet_size" ] || [ -n "$window_size" ] || [ "$flows" != 1 ] || [ "$reverse" = true ]; then
     echo "Error: --export-excel cannot be combined with client/server run options."
     exit 1
   fi
@@ -223,8 +230,8 @@ if [ -n "$export_excel" ]; then
   exec "$PYTHON_BIN" "$SCRIPT_DIR/export_excel.py" "${export_args[@]}"
 fi
 
-if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -le 0 ]; then
-  echo "Error: --port must be a positive integer."
+if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -le 0 ] || [ "$port" -gt 65535 ]; then
+  echo "Error: --port must be an integer between 1 and 65535."
   exit 1
 fi
 
@@ -239,6 +246,16 @@ fi
 
 if ! [[ -z "$packet_size" || "$packet_size" =~ ^[1-9][0-9]*$ ]]; then
   echo "Error: --packet-size must be a positive integer."
+  exit 1
+fi
+
+if ! [[ -z "$window_size" || "$window_size" =~ ^[1-9][0-9]*([KkMmGg])?$ ]]; then
+  echo "Error: --window-size must be a positive integer optionally followed by K, M, or G."
+  exit 1
+fi
+
+if [ -n "$window_size" ] && [ "$protocol" != "tcp" ]; then
+  echo "Error: --window-size can only be used with --tcp."
   exit 1
 fi
 
@@ -278,13 +295,16 @@ make_metadata_string() {
     if [ -n "$packet_size" ]; then
       metadata="$metadata packet_size=$packet_size"
     fi
+    if [ -n "$window_size" ]; then
+      metadata="$metadata window_size=$window_size"
+    fi
   fi
 
   printf '%s' "$metadata"
 }
 
 if [ "$server_mode" = true ]; then
-  if [ -n "$target_ip" ] || [ -n "$source_ip" ] || [ -n "$packet_size" ] || [ "$flows" != 1 ] || [ "$reverse" = true ]; then
+  if [ -n "$target_ip" ] || [ -n "$source_ip" ] || [ -n "$packet_size" ] || [ -n "$window_size" ] || [ "$flows" != 1 ] || [ "$reverse" = true ]; then
     echo "Error: client-only arguments cannot be used with --server."
     exit 1
   fi
@@ -299,6 +319,10 @@ if [ "$server_mode" = true ]; then
   server_args+=(--metadata "$(make_metadata_string server "")")
 
   exec "$SCRIPT_DIR/iperf_client.sh" --server "${server_args[@]}"
+fi
+
+if [ -z "$packet_size" ]; then
+  packet_size=1460
 fi
 
 if [ -z "$target_ip" ]; then
@@ -342,6 +366,10 @@ fi
 
 if [ -n "$packet_size" ]; then
   iperf_args+=(--packet-size "$packet_size")
+fi
+
+if [ -n "$window_size" ]; then
+  iperf_args+=(--window-size "$window_size")
 fi
 
 iperf_args+=(--flows "$flows")
