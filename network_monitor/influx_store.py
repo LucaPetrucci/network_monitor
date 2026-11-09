@@ -134,7 +134,7 @@ class InfluxStore:
                 rows.append(record)
         return rows
 
-    def records(self, measurement, start=None, end=None, host=None):
+    def records(self, measurement, start=None, end=None, host=None, max_rows=None):
         start_ns = timestamp_ns(start) if start else 0
         stop_ns = timestamp_ns(end) + 1 if end else time.time_ns() + 1
         if start_ns >= stop_ns:
@@ -144,6 +144,22 @@ class InfluxStore:
                 f'|> filter(fn: (r) => r._measurement == {json.dumps(measurement)}) ')
         if host:
             flux += f'|> filter(fn: (r) => r.host == {json.dumps(host)}) '
+        if max_rows is not None:
+            primary = {
+                self.config.get('IPERF_TABLE', 'iperf_results'): 'bitrate',
+                self.config.get('PING_TABLE', 'ping_results'): 'latency',
+                self.config.get('INTERRUPTIONS_TABLE', 'interruptions'): 'interruption_time',
+            }.get(measurement)
+            if primary is None or int(max_rows) < 1:
+                raise ValueError('Invalid export limit or measurement')
+            # One sentinel per imported row (including NULL metrics), or the
+            # normal primary field for live rows; count before allocating CSV.
+            counter = (flux + '|> filter(fn: (r) => r._field == "legacy_row" or '
+                       f'(r._field == {json.dumps(primary)} and not exists r.migration_source)) '
+                       '|> group(columns: ["_field"]) |> count() |> group() |> sum(column: "_value")')
+            count = sum(int(row.get('_value', 0)) for row in self.query(counter))
+            if count > int(max_rows):
+                raise ValueError(f'{measurement}: {count} rows exceed export limit {max_rows}; narrow --start/--end')
         flux += '|> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value") |> group() |> sort(columns: ["_time"])'
         return self.query(flux)
 

@@ -4,6 +4,8 @@ Intervento applicato il **9 novembre 2026**. Il network monitor installato su **
 
 Test automatici e di integrazione ripetuti, più nuovo collaudo fra i due NUC prima della pubblicazione: [VALIDATION_20261109.md](VALIDATION_20261109.md).
 
+**Aggiornamento successivo:** anche lo storico locale di NUC2 è ora importato e verificato: **5.302.235 record**, sorgenti MariaDB conservate. Vedere [migrazione dello storico](HISTORY_MIGRATION_20261109.md).
+
 ## Stato applicato e dati preesistenti
 
 - Installato il pacchetto ufficiale amd64, verificando SHA-256 contro la release upstream.
@@ -13,7 +15,7 @@ Test automatici e di integrazione ripetuti, più nuovo collaudo fra i due NUC pr
 - ACL di sola lettura di `tuser` conservata; nessun privilegio sudo assegnato al runtime.
 - Gli script aggiornati sono stati distribuiti in `/opt/network_monitor2` su NUC2.
 - MariaDB rimane attivo per **LibreNMS**, che continua a usare il proprio DB applicativo e RRD. Non è stato migrato LibreNMS.
-- Lo storico del network monitor in MariaDB è conservato e **non è stato importato** nel nuovo bucket. Export e nuova dashboard InfluxDB mostrano i dati del nuovo backend; per lo storico usare la configurazione MariaDB o le dashboard precedenti.
+- Lo storico del network monitor in MariaDB è conservato ed è stato **successivamente importato e verificato** nel nuovo bucket. Export e nuova dashboard InfluxDB possono leggere anche lo storico; le dashboard MariaDB precedenti restano disponibili.
 - Nessuna modifica all'istanza InfluxDB `10.10.27.41:8086`, ai gateway INDRA o alla configurazione di NUC1.
 
 Backup precedente al cambio di backend: `/var/backups/network_monitor2/20261109_171348/runtime`, accessibile solo all'amministratore. Contiene configurazione, script e virtualenv precedenti. Non pubblicare questi file: includono credenziali reali.
@@ -49,6 +51,8 @@ network_monitor2 --export-excel risultati.xlsx \
 ```
 
 Sono mantenuti fogli e colonne esistenti, filtri temporali inclusivi e suffisso dell'intervallo nel nome. InfluxDB non ha l'ID auto-incrementante MariaDB: gli ID delle righe esportate sono numeri di sequenza dell'export, non identificatori persistenti.
+
+Dopo l'importazione dello storico, usare intervalli temporali limitati: il limite predefinito è 200.000 righe per measurement, verificato con un conteggio prima di caricare i dati. Configurabile tramite `INFLUX_EXPORT_MAX_ROWS`; vedere il documento dello storico per motivazioni e verifiche.
 
 Se configurato, `REMOTE_DB_HOST` permette ancora di affiancare campioni del peer MariaDB; la connessione è di lettura. In alternativa si possono definire `REMOTE_INFLUX_URL`, `REMOTE_INFLUX_ORG`, `REMOTE_INFLUX_BUCKET`, `REMOTE_INFLUX_TOKEN`, `REMOTE_INFLUX_HOST` per un peer InfluxDB. La semantica precedente di affiancamento per run/intervallo resta invariata; non è stata introdotta una sincronizzazione fra i due nodi.
 
@@ -115,6 +119,6 @@ sudo python3 tests/integration_influxdb2.py
 
 Per tornare alle nuove scritture MariaDB su NUC2, un amministratore può impostare `DB_BACKEND=mariadb` nel setup.conf conservando le precedenti credenziali DB. L'export seguirà quel backend; i dati già scritti in InfluxDB non vengono cancellati. Per ripristinare anche il codice, usare il backup runtime dopo aver fermato solo gli eventuali processi network_monitor2 attivi; preservare le ACL. Non rimuovere MariaDB o i database di LibreNMS.
 
-Migrare lo storico SQL, portare anche NUC1 a InfluxDB, centralizzare i due nodi e risolvere i gateway INDRA sono attività **distinte, non eseguite in questo intervento**.
+La migrazione dello storico SQL locale NUC2 è stata completata nella fase successiva documentata sopra. Portare anche NUC1 a InfluxDB, migrare il suo storico, centralizzare i due nodi e risolvere i gateway INDRA restano attività distinte non eseguite.
 
 Riferimenti ufficiali: [installazione InfluxDB 2](https://docs.influxdata.com/influxdb/v2/install/), [release 2.7.12 e checksum](https://github.com/influxdata/influxdb/releases/tag/v2.7.12), [API](https://docs.influxdata.com/influxdb/v2/reference/api/).

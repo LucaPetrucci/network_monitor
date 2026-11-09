@@ -7,6 +7,10 @@ For the InfluxDB backend and the NUC2 deployment, see [InfluxDB migration and op
 
 Latest release checks and handover: [validation results, 9 November 2026 (Italian)](docs/VALIDATION_20261109.md), [project context](docs/PROJECT_CONTEXT.md).
 
+NUC2 historical MariaDB data has also been imported and reconciled: [history migration report](docs/HISTORY_MIGRATION_20261109.md). Use bounded `--start`/`--end` ranges for Excel export; the InfluxDB exporter defaults to a 200,000-row limit per measurement.
+
+An independent, current-database comparison matched all 5,302,235 historical rows: [database comparison and repeated tests](docs/DATABASE_COMPARISON_20261109.md).
+
 The runtime has two modes:
 
 - client mode, which is the default

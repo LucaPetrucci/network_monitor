@@ -53,3 +53,7 @@ Restano esclusi configurazioni reali, token, credenziali, backup di sistema e lo
 Commit creato sul branch locale `main`. Push non completato in questa sessione: HTTPS richiede credenziali non disponibili nel terminale; SSH rifiuta la chiave presente (`Permission denied (publickey)`). La connessione GitHub dell'app legge il repository ma la creazione dell'albero Git è rifiutata con HTTP 403 `Resource not accessible by integration`. Nessun aggiornamento del branch remoto è stato effettuato.
 
 Dopo aver configurato un'autenticazione con permessi di scrittura sul repository, riprendere da `git status -sb`, `git fetch origin` e confronto con `origin/main`, quindi `git push origin main` se la pubblicazione è ancora fast-forward. Non usare force push per superare divergenze.
+
+## Attività successiva: importazione dello storico
+
+Dopo questo commit l'utente ha richiesto anche la migrazione dei dati. Sono stati importati e riconciliati 5.302.235 record di NUC2; vedere [HISTORY_MIGRATION_20261109.md](HISTORY_MIGRATION_20261109.md). La nuova fase ha aggiunto 6 test della migrazione e un settimo test storage per il limite export; integrazione live ed export storico sono riusciti. Queste modifiche successive non sono ancora nel commit 5c0ef21 né pubblicate.

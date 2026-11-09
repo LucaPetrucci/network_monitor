@@ -81,7 +81,7 @@ class StorageTests(unittest.TestCase):
     def test_excel_empty_measurements_and_column_contract(self):
         row = {'_time': '2026-11-09T12:00:00Z', 'bitrate': '1.25', 'protocol': 'udp',
                'executed_command': 'protocol=udp direction=reverse'}
-        def records(self, measurement, *args):
+        def records(self, measurement, *args, **kwargs):
             return [row] if measurement == 'iperf_results' else []
         with tempfile.TemporaryDirectory() as folder, patch.object(storage.InfluxStore, 'records', records):
             path = Path(folder) / 'test.xlsx'
@@ -92,6 +92,14 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(wb['iperf_results'].cell(2, 3).value, '1.25')
             self.assertEqual(wb['iperf_results'].cell(2, 9).value, 'udp')
             self.assertEqual(wb['ping_results'].max_row, 1)
+
+    def test_large_export_fails_before_materializing_history(self):
+        store = storage.InfluxStore(CONFIG)
+        with patch.object(store, 'query', return_value=[{'_value': '5271269'}]) as query:
+            with self.assertRaisesRegex(ValueError, 'narrow --start/--end'):
+                store.records('ping_results', host='test-node', max_rows=200000)
+            self.assertEqual(query.call_count, 1)
+            self.assertIn('legacy_row', query.call_args.args[0])
 
 
 if __name__ == '__main__':

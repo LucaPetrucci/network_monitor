@@ -4,6 +4,10 @@ Documento di orientamento per collaboratori e agenti, aggiornato il **9 novembre
 
 Aggiornamento infrastruttura: la [ricognizione management del 9 novembre](MANAGEMENT_INVENTORY_20261109.md) ha identificato InfluxDB **2.7.12 su 10.10.27.41:8086**, LibreNMS su NUC2 e i monitor Blu Wireless su .70–74. **Successivamente, su richiesta dell'utente, NUC2 è stato migrato a una nuova istanza locale InfluxDB 2.7.12.** NUC1 e LibreNMS restano su MariaDB; lo storico è conservato. Leggere [la migrazione InfluxDB](INFLUXDB_MIGRATION.md) per stato attuale, nuove componenti, test, accesso e rollback. Le sezioni seguenti descrivono anche l'architettura originaria MariaDB.
 
+**Ultimo aggiornamento:** il 9 novembre alle 18:23 CET è stata completata anche [la migrazione dello storico NUC2](HISTORY_MIGRATION_20261109.md): 5.302.235 righe verificate integralmente, dati SQL e punti live conservati. L'export richiede ora un intervallo compatibile con il limite predefinito di 200.000 righe per measurement. Script e modifiche di questa fase sono successivi al commit locale 5c0ef21 e non ancora pubblicati.
+
+Alle **18:31 CET** è terminato un [ulteriore confronto indipendente dei database attuali](DATABASE_COMPARISON_20261109.md): 5.302.235 righe corrispondenti per ID, zero differenze/mancanti/duplicati. Rieseguiti anche tutti i test automatici e l'integrazione live: PASS. Per ripetere il controllo senza riscrivere dati usare `scripts/verify_history_databases.py`.
+
 ## Scopo e contesto operativo
 
 Network Monitor v2 è uno strumento COMSA per generare traffico e misurare le prestazioni di rete tra due host Debian/Ubuntu. È usato nel contesto del progetto FuTuRe, con prove su NUC1 e NUC2 attraverso percorsi gateway CEIT/INDRA e bypass. Nella richiesta di assistenza Jaime attribuisce il tool a FuTuRe 1, Task 9.8, ma tale riferimento contrattuale non è stato verificato: non usarlo come dato ufficiale senza riscontro.
@@ -50,6 +54,8 @@ flowchart LR
 | `scripts/grant_runtime_access.sh` | Correzione ACL per l'utente runtime, introdotta durante l'assistenza del 5 novembre |
 | `network_monitor/storage.sh`, `influx_store.py` | Selezione backend e scrittura/lettura HTTP InfluxDB 2 |
 | `scripts/install_influxdb2.sh`, `scripts/provision_influxdb2.py` | Installazione locale, bucket, token, backup e provisioning Grafana |
+| `scripts/migrate_mariadb_history.py` | Snapshot protetti, importazione idempotente e riconciliazione integrale dello storico SQL locale |
+| `scripts/verify_history_databases.py` | Nuovo confronto in sola lettura fra DB correnti, con indice temporaneo per ID e rilevamento mancanti/duplicati/differenze |
 
 ## Installazione e separazione workspace/runtime
 

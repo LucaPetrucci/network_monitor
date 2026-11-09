@@ -183,7 +183,8 @@ def export_influx(config, output_path, start, end):
 
     def rows_for(measurement, names, reader=store, node=host):
         result = []
-        for index, record in enumerate(reader.records(measurement, start, end, node), 1):
+        maximum = int(config.get('INFLUX_EXPORT_MAX_ROWS', '200000'))
+        for index, record in enumerate(reader.records(measurement, start, end, node, max_rows=maximum), 1):
             stamp = datetime.fromisoformat(record['_time'].replace('Z', '+00:00')).astimezone()
             record = dict(record, id=index, timestamp=stamp.strftime('%Y-%m-%d %H:%M:%S.%f'))
             result.append([record.get(name, '') for name in names])
