@@ -9,6 +9,7 @@ if [ ! -f "$SCRIPT_DIR/setup.conf" ]; then
   exit 1
 fi
 source "$SCRIPT_DIR/setup.conf"
+source "$SCRIPT_DIR/storage.sh"
 
 IPERF_TABLE="${IPERF_TABLE:-iperf_results}"
 
@@ -180,6 +181,7 @@ should_store_interval() {
 
 extended_columns_supported="no"
 detect_schema_capabilities() {
+  if [ "$DB_BACKEND" = influxdb ]; then return; fi
   local -a mysql_cmd=()
   make_mysql_cmd mysql_cmd
 
@@ -211,6 +213,13 @@ insert_sample() {
   local sql_packet_size="NULL"
   local sql_window_size="NULL"
 
+  if [ "$DB_BACKEND" = influxdb ]; then
+    influx_write iperf "$timestamp" "$bitrate" "$jitter" "$loss" "$sample_packet_size" "$sample_window_size" "$sample_protocol" "$sample_metadata" || {
+      echo "Error: failed to store iperf sample at $timestamp" >&2
+      return 1
+    }
+    return
+  fi
   make_mysql_cmd mysql_cmd
   escaped_command=$(escape_sql "$sample_metadata")
 
@@ -467,12 +476,19 @@ if [ -z "$metadata" ]; then
 fi
 
 start_time=$(date +%s.%N)
-parse_udp_receiver=false
+# In a normal UDP run the receiver intervals are printed under "Server
+# output:".  With -R the local client is the receiver, so its intervals are
+# printed before that section and the server section contains sender data.
+parse_udp_receiver="$reverse"
 echo "Running iperf3 client against $target_ip"
 stdbuf -oL -eL "${iperf_args[@]}" | while IFS= read -r line; do
   echo "$line"
   if [ "$protocol" = "udp" ] && [ "$line" = "Server output:" ]; then
-    parse_udp_receiver=true
+    if [ "$reverse" = true ]; then
+      parse_udp_receiver=false
+    else
+      parse_udp_receiver=true
+    fi
     continue
   fi
   if [ "$protocol" = "udp" ] && [ "$parse_udp_receiver" = true ] && { { [ "$flows" -eq 1 ] && [[ $line =~ $udp_regex ]]; } || { [ "$flows" -gt 1 ] && [[ $line =~ $sum_udp_regex ]]; }; }; then

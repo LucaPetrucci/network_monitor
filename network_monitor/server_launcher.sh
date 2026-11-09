@@ -14,6 +14,10 @@ if [ ! -f "$SCRIPT_DIR/setup.conf" ]; then
   exit 1
 fi
 source "$SCRIPT_DIR/setup.conf"
+source "$SCRIPT_DIR/storage.sh"
+# Shared by all collectors in this invocation; avoids collisions across runs.
+export NM_RUN_ID="${NM_RUN_ID:-$(cat /proc/sys/kernel/random/uuid)}"
+export NM_HOST="${NM_HOST:-$(hostname)}"
 
 port=5050
 duration=30
@@ -303,6 +307,10 @@ make_metadata_string() {
   printf '%s' "$metadata"
 }
 
+if [ "$DB_BACKEND" = influxdb ]; then
+  "$storage_python" "$SCRIPT_DIR/influx_store.py" check
+fi
+
 if [ "$server_mode" = true ]; then
   if [ -n "$target_ip" ] || [ -n "$source_ip" ] || [ -n "$packet_size" ] || [ -n "$window_size" ] || [ "$flows" != 1 ] || [ "$reverse" = true ]; then
     echo "Error: client-only arguments cannot be used with --server."
@@ -396,6 +404,12 @@ iperf_pid=$!
 wait "$iperf_pid"
 iperf_pid=""
 
+monitor_failed=false
+for monitor_pid in "$ping_pid" "$interrupt_pid"; do
+  if ! kill -0 "$monitor_pid" 2>/dev/null; then
+    wait "$monitor_pid" || monitor_failed=true
+  fi
+done
 kill "$ping_pid" 2>/dev/null || true
 kill "$interrupt_pid" 2>/dev/null || true
 wait "$ping_pid" 2>/dev/null || true
@@ -404,4 +418,8 @@ ping_pid=""
 interrupt_pid=""
 
 trap - INT TERM EXIT
+if [ "$monitor_failed" = true ]; then
+  echo "Error: a background collector failed; monitoring data is incomplete." >&2
+  exit 1
+fi
 echo "Monitoring run completed."

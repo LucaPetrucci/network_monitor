@@ -9,6 +9,7 @@ if [ ! -f "$SCRIPT_DIR/setup.conf" ]; then
   exit 1
 fi
 source "$SCRIPT_DIR/setup.conf"
+source "$SCRIPT_DIR/storage.sh"
 
 INTERRUPTIONS_TABLE="${INTERRUPTIONS_TABLE:-interruptions}"
 
@@ -54,17 +55,19 @@ if [ -z "$target_ip" ]; then
   exit 1
 fi
 
-db_host="${DB_HOST:-}"
-db_port="${DB_PORT:-}"
+if [ "$DB_BACKEND" = mariadb ]; then
+  db_host="${DB_HOST:-}"
+  db_port="${DB_PORT:-}"
 
-mysql_cmd=(mysql -u "$DB_USER" -p"$DB_PASS")
-if [ -n "$db_host" ]; then
-  mysql_cmd+=(-h "$db_host")
+  mysql_cmd=(mysql -u "$DB_USER" -p"$DB_PASS")
+  if [ -n "$db_host" ]; then
+    mysql_cmd+=(-h "$db_host")
+  fi
+  if [ -n "$db_port" ]; then
+    mysql_cmd+=(-P "$db_port")
+  fi
+  mysql_cmd+=("$DB_NAME")
 fi
-if [ -n "$db_port" ]; then
-  mysql_cmd+=(-P "$db_port")
-fi
-mysql_cmd+=("$DB_NAME")
 
 ping_args=(ping -c 1 -W 2)
 if [ -n "$source_ip" ]; then
@@ -116,8 +119,12 @@ while true; do
       interruption_time=$(awk "BEGIN {printf \"%.3f\", $first_success_after_down_time - $first_failure_time}")
       if [ -n "$interruption_time" ] && [ "$(awk "BEGIN {print ($interruption_time >= $min_interruption_duration)}")" = "1" ]; then
         timestamp=$(date +"%Y-%m-%d %H:%M:%S.%3N")
-        "${mysql_cmd[@]}" -e "INSERT INTO \`$INTERRUPTIONS_TABLE\` (timestamp, interruption_time) VALUES ('$timestamp', $interruption_time);" 2>/dev/null || \
-          echo "Warning: failed to insert interruption at $timestamp"
+        if [ "$DB_BACKEND" = influxdb ]; then
+          influx_write interruption "$timestamp" "$interruption_time" "$target_ip" "$source_ip" || exit 1
+        else
+          "${mysql_cmd[@]}" -e "INSERT INTO \`$INTERRUPTIONS_TABLE\` (timestamp, interruption_time) VALUES ('$timestamp', $interruption_time);" 2>/dev/null || \
+            echo "Warning: failed to insert interruption at $timestamp"
+        fi
       fi
       disconnected=false
       consecutive_successes=0

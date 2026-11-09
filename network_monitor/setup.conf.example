@@ -1,5 +1,12 @@
 # Copy these values to /opt/network_monitor2/setup.conf through setup_v2.sh.
 # Never commit a setup.conf containing real credentials.
+DB_BACKEND=mariadb
+# Alternative backend (InfluxDB OSS 2.x): set DB_BACKEND=influxdb and provision
+# these values with: sudo bash setup_v2.sh --influxdb
+# INFLUX_URL=http://127.0.0.1:8086
+# INFLUX_ORG=network-monitor
+# INFLUX_BUCKET=network-monitor
+# INFLUX_TOKEN=<bucket-scoped read/write token; never commit a real token>
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=network_monitor_v2

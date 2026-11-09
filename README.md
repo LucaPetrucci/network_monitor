@@ -1,7 +1,11 @@
 # Network Monitor v2
 
 `network_monitor2` is a two-host network monitoring tool for Debian/Ubuntu systems.
-It collects `ping`, `iperf3`, and interruption data, stores everything in the local MariaDB instance configured on each host, and exposes the results through Grafana dashboards.
+It collects `ping`, `iperf3`, and interruption data, stores samples in the configured MariaDB or InfluxDB 2 backend, and exposes the results through Grafana dashboards.
+
+For the InfluxDB backend and the NUC2 deployment, see [InfluxDB migration and operations (Italian)](docs/INFLUXDB_MIGRATION.md). Install it with `sudo bash setup_v2.sh --influxdb`; the default setup and the MariaDB-specific instructions below remain available for existing installations.
+
+Latest release checks and handover: [validation results, 9 November 2026 (Italian)](docs/VALIDATION_20261109.md), [project context](docs/PROJECT_CONTEXT.md).
 
 The runtime has two modes:
 
@@ -16,6 +20,8 @@ For the shortest path from route selection to a working test, use the operationa
 - [Guida italiana](docs/network_monitor_guide/GUIDA_NETWORK_MONITOR.md)
 - [Guida a un test manuale con parametri personalizzati](docs/MANUAL_TEST_GUIDE.md)
 - [Custom manual test guide](docs/MANUAL_TEST_GUIDE_EN.md)
+- [Project context for collaborators and agents (Italian)](docs/PROJECT_CONTEXT.md)
+- [Handover: NUC permissions fix and open INDRA diagnosis (Italian)](docs/HANDOVER_NUC_PERMISSIONS_INDRA_20261105.md)
 
 ## Features
 

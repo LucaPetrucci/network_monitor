@@ -1,0 +1,196 @@
+{
+  "uid": "network-monitor-influxdb",
+  "title": "Network Monitor \u2014 InfluxDB",
+  "schemaVersion": 39,
+  "version": 1,
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "tags": [
+    "network-monitor",
+    "influxdb"
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Throughput",
+      "type": "timeseries",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "NetworkMonitorInfluxDB"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"network-monitor\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"iperf_results\" and r._field == \"bitrate\")\n  |> filter(fn: (r) => r.host =~ /^${host:regex}$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> yield(name: \"mean\")"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Mbits"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "title": "Jitter",
+      "type": "timeseries",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "NetworkMonitorInfluxDB"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"network-monitor\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"iperf_results\" and r._field == \"jitter\")\n  |> filter(fn: (r) => r.host =~ /^${host:regex}$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> yield(name: \"mean\")"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Packet loss",
+      "type": "timeseries",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "NetworkMonitorInfluxDB"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"network-monitor\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"iperf_results\" and r._field == \"lost_percentage\")\n  |> filter(fn: (r) => r.host =~ /^${host:regex}$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> yield(name: \"mean\")"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Latency",
+      "type": "timeseries",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "NetworkMonitorInfluxDB"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"network-monitor\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ping_results\" and r._field == \"latency\")\n  |> filter(fn: (r) => r.host =~ /^${host:regex}$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> yield(name: \"mean\")"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Interruptions",
+      "type": "timeseries",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "NetworkMonitorInfluxDB"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"network-monitor\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"interruptions\" and r._field == \"interruption_time\")\n  |> filter(fn: (r) => r.host =~ /^${host:regex}$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> yield(name: \"mean\")"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "title": "Recent test metadata",
+      "type": "table",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "NetworkMonitorInfluxDB"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"network-monitor\")\n |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n |> filter(fn: (r) => r._measurement == \"iperf_results\" and r._field == \"executed_command\")\n |> filter(fn: (r) => r.host =~ /^${host:regex}$/)\n |> group() |> sort(columns: [\"_time\"], desc: true) |> limit(n: 100)"
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "host",
+        "label": "Host",
+        "type": "query",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "NetworkMonitorInfluxDB"
+        },
+        "query": "import \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: \"network-monitor\", tag: \"host\", start: -30d)",
+        "refresh": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  }
+}

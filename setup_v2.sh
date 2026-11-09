@@ -7,6 +7,37 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+# Explicit alternative installation. Preserve the legacy MariaDB path below.
+if [ "${1:-}" = --influxdb ]; then
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get install -y iperf3 iputils-ping procps coreutils python3-venv curl acl
+  mkdir -p /opt/network_monitor2
+  if [ ! -f /opt/network_monitor2/setup.conf ]; then
+    printf '%s\n' 'IPERF_TABLE=iperf_results' 'PING_TABLE=ping_results' \
+      'INTERRUPTIONS_TABLE=interruptions' > /opt/network_monitor2/setup.conf
+    chown root:"$(id -gn "${SUDO_USER:-root}")" /opt/network_monitor2/setup.conf
+    chmod 640 /opt/network_monitor2/setup.conf
+  fi
+  if id tuser >/dev/null 2>&1; then
+    setfacl -m u:tuser:r /opt/network_monitor2/setup.conf
+  fi
+  python3 -m venv /opt/network_monitor2/.venv
+  /opt/network_monitor2/.venv/bin/pip install -r "$REPO_ROOT/requirements.txt"
+  bash "$REPO_ROOT/scripts/install_influxdb2.sh"
+  python3 "$REPO_ROOT/scripts/provision_influxdb2.py"
+  ln -sf /opt/network_monitor2/server_launcher.sh /usr/local/bin/network_monitor2
+  if systemctl cat grafana-server >/dev/null 2>&1; then
+    systemctl try-restart grafana-server
+  fi
+  echo 'InfluxDB backend installed. See docs/INFLUXDB_MIGRATION.md.'
+  exit 0
+elif [ "$#" -gt 0 ]; then
+  echo 'Usage: sudo bash setup_v2.sh [--influxdb]' >&2
+  exit 2
+fi
+
 INSTALL_DIR="/opt/network_monitor2"
 COMMAND_NAME="network_monitor2"
 SETUP_CONF="$INSTALL_DIR/setup.conf"

@@ -86,11 +86,23 @@ grep -q 'Monitoring run completed' "$test_dir/client_udp.log"
 grep -q '\[SUM\]' "$test_dir/client_udp.log"
 grep -q -- '-u' "$IPERF_ARGUMENT_LOG"
 grep -q -- '--get-server-output' "$IPERF_ARGUMENT_LOG"
+
 grep -q -- '-b 5M' "$IPERF_ARGUMENT_LOG"
 grep -q -- '-P 4' "$IPERF_ARGUMENT_LOG"
 grep -q -- '-l 1200' "$IPERF_ARGUMENT_LOG"
 grep -q 'direction=forward flows=4' "$MOCK_MYSQL_LOG"
 grep -q 'bandwidth=20M packet_size=1200' "$MOCK_MYSQL_LOG"
+
+: > "$IPERF_ARGUMENT_LOG"
+"$install_dir/server_launcher.sh" 127.0.0.1 \
+  --source-ip 127.0.0.1 \
+  --udp \
+  --reverse \
+  --duration 1 \
+  --packet-size 1200 \
+  --port "$port" >"$test_dir/client_udp_reverse.log" 2>&1
+grep -q -- '-R' "$IPERF_ARGUMENT_LOG"
+grep -q 'direction=reverse flows=1' "$MOCK_MYSQL_LOG"
 
 : >"$IPERF_ARGUMENT_LOG"
 "$install_dir/server_launcher.sh" 127.0.0.1 \

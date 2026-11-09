@@ -9,6 +9,7 @@ if [ ! -f "$SCRIPT_DIR/setup.conf" ]; then
   exit 1
 fi
 source "$SCRIPT_DIR/setup.conf"
+source "$SCRIPT_DIR/storage.sh"
 
 PING_TABLE="${PING_TABLE:-ping_results}"
 
@@ -115,17 +116,19 @@ if [ "$check_only" = true ]; then
   exit $?
 fi
 
-db_host="${DB_HOST:-}"
-db_port="${DB_PORT:-}"
+if [ "$DB_BACKEND" = mariadb ]; then
+  db_host="${DB_HOST:-}"
+  db_port="${DB_PORT:-}"
 
-mysql_cmd=(mysql -u "$DB_USER" -p"$DB_PASS")
-if [ -n "$db_host" ]; then
-  mysql_cmd+=(-h "$db_host")
+  mysql_cmd=(mysql -u "$DB_USER" -p"$DB_PASS")
+  if [ -n "$db_host" ]; then
+    mysql_cmd+=(-h "$db_host")
+  fi
+  if [ -n "$db_port" ]; then
+    mysql_cmd+=(-P "$db_port")
+  fi
+  mysql_cmd+=("$DB_NAME")
 fi
-if [ -n "$db_port" ]; then
-  mysql_cmd+=(-P "$db_port")
-fi
-mysql_cmd+=("$DB_NAME")
 
 ping_fifo="$(mktemp -u)"
 mkfifo "$ping_fifo"
@@ -136,8 +139,12 @@ while IFS= read -r line; do
   if [[ $line =~ time=([0-9.]+)[[:space:]]ms ]]; then
     timestamp=$(date +"%Y-%m-%d %H:%M:%S.%3N")
     latency="${BASH_REMATCH[1]}"
-    "${mysql_cmd[@]}" -e "INSERT INTO \`$PING_TABLE\` (timestamp, latency) VALUES ('$timestamp', $latency);" 2>/dev/null || \
+    if [ "$DB_BACKEND" = influxdb ]; then
+      influx_write ping "$timestamp" "$latency" "$target_ip" "$source_ip" || exit 1
+    else
+      "${mysql_cmd[@]}" -e "INSERT INTO \`$PING_TABLE\` (timestamp, latency) VALUES ('$timestamp', $latency);" 2>/dev/null || \
       echo "Warning: failed to insert ping sample at $timestamp"
+    fi
   fi
 done < "$ping_fifo"
 

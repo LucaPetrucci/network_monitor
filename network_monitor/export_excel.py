@@ -5,6 +5,10 @@ from pathlib import Path
 from subprocess import run
 from typing import Optional
 from datetime import datetime
+import socket
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from influx_store import InfluxStore, load_config as load_storage_config
 
 try:
     from openpyxl import Workbook
@@ -21,15 +25,7 @@ SETUP_CONF = SCRIPT_DIR / "setup.conf"
 
 
 def load_config(path: Path) -> dict:
-    config = {}
-    with path.open("r", encoding="utf-8") as handle:
-        for raw_line in handle:
-            line = raw_line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            config[key.strip()] = value.strip()
-    return config
+    return load_storage_config(path)
 
 
 def escape_sql(value: str) -> str:
@@ -178,6 +174,51 @@ def merge_iperf_rows(local_rows: list[list[str]], remote_rows: list[list[str]]) 
     return merged
 
 
+def export_influx(config, output_path, start, end):
+    """Keep the established Excel column contract, including optional peer data."""
+    store = InfluxStore(config)
+    host = config.get('INFLUX_HOST_FILTER') or socket.gethostname()
+    columns = ['id', 'timestamp', 'bitrate', 'jitter', 'lost_percentage',
+               'protocol', 'packet_size', 'window_size', 'executed_command']
+
+    def rows_for(measurement, names, reader=store, node=host):
+        result = []
+        for index, record in enumerate(reader.records(measurement, start, end, node), 1):
+            stamp = datetime.fromisoformat(record['_time'].replace('Z', '+00:00')).astimezone()
+            record = dict(record, id=index, timestamp=stamp.strftime('%Y-%m-%d %H:%M:%S.%f'))
+            result.append([record.get(name, '') for name in names])
+        return result
+
+    iperf = rows_for(config.get('IPERF_TABLE', 'iperf_results'), columns)
+    remote = []
+    if config.get('REMOTE_INFLUX_URL'):
+        remote_config = dict(config)
+        for key in ('URL', 'ORG', 'BUCKET', 'TOKEN'):
+            remote_config['INFLUX_' + key] = config.get('REMOTE_INFLUX_' + key, config.get('INFLUX_' + key, ''))
+        remote = rows_for(config.get('IPERF_TABLE', 'iperf_results'), columns,
+                          InfluxStore(remote_config), config.get('REMOTE_INFLUX_HOST', ''))
+    elif config.get('REMOTE_DB_HOST'):
+        table = config.get('IPERF_TABLE', 'iperf_results')
+        sql = f"SELECT {', '.join(columns)} FROM `{table}`{build_where_clause(start, end)} ORDER BY timestamp ASC;"
+        remote = run_query(build_db_config(config, 'REMOTE_'), sql)[1:]
+    workbook = Workbook()
+    workbook.remove(workbook.active)
+    merged = merge_iperf_rows(iperf, remote)
+    headers = ['id', 'timestamp', 'Data Rate', 'Data Rate Remote', 'Jitter', 'Jitter Remote',
+               'Lost Packets', 'Lost Packets Remote', 'protocol', 'packet_size', 'window_size', 'executed_command']
+    add_sheet(workbook, 'iperf_results', [headers, *merged])
+    for sheet, measurement, names in (
+        ('ping_results', config.get('PING_TABLE', 'ping_results'), ['id', 'timestamp', 'latency']),
+        ('interruptions', config.get('INTERRUPTIONS_TABLE', 'interruptions'), ['id', 'timestamp', 'interruption_time']),
+    ):
+        add_sheet(workbook, sheet, [names, *rows_for(measurement, names)])
+    names = ['id', 'timestamp', 'protocol', 'packet_size', 'window_size', 'executed_command']
+    add_sheet(workbook, 'commands', [names, *[[row[columns.index(name)] for name in names] for row in iperf]])
+    workbook.save(output_path)
+    print(f'Exported Excel workbook to {output_path} (InfluxDB, host={host})')
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="network_monitor2 --export-excel",
@@ -208,6 +249,12 @@ def main() -> int:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     config = load_config(SETUP_CONF)
+    if config.get('DB_BACKEND', 'mariadb') == 'influxdb':
+        try:
+            return export_influx(config, output_path, args.start, args.end)
+        except (ValueError, OSError, RuntimeError) as exc:
+            print(f'Error exporting InfluxDB data: {exc}', file=sys.stderr)
+            return 1
     required = ["DB_NAME", "DB_USER", "DB_PASS"]
     missing = [key for key in required if not config.get(key)]
     if missing:
